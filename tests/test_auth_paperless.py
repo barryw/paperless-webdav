@@ -4,8 +4,17 @@
 import pytest
 import respx
 from httpx import AsyncClient, ASGITransport, Response
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from paperless_webdav.app import create_app
+from paperless_webdav.auth.paperless import (
+    _create_session,
+    _validate_session,
+    get_current_user,
+    get_current_user_optional,
+    AuthenticatedUser,
+)
+from paperless_webdav.config import get_settings
 
 
 @pytest.fixture
@@ -280,3 +289,105 @@ class TestSessionManagement:
 
         assert response.status_code == 200
         assert len(response.json()) == 1
+
+
+class TestTokenLoadingFromDB:
+    """Tests for loading Paperless token from database for OIDC users."""
+
+    @pytest.mark.asyncio
+    async def test_get_current_user_loads_token_from_db_if_missing(self, mock_oidc_settings):
+        """get_current_user should load token from DB for OIDC users with empty session token."""
+        settings = get_settings()
+
+        # Create session with username but empty token (OIDC user post-login)
+        session_value = _create_session("barry", "", settings)
+
+        # Mock get_user_token to return stored token from DB
+        with patch(
+            "paperless_webdav.auth.paperless.get_user_token", new_callable=AsyncMock
+        ) as mock_get_token:
+            mock_get_token.return_value = "db-stored-token"
+
+            # Mock get_session to provide a database session
+            mock_db_session = MagicMock()
+            with patch(
+                "paperless_webdav.auth.paperless.get_session"
+            ) as mock_get_session:
+                async def async_gen():
+                    yield mock_db_session
+
+                mock_get_session.return_value = async_gen()
+
+                user = await get_current_user(session=session_value, settings=settings)
+
+        assert user.username == "barry"
+        assert user.token == "db-stored-token"
+        mock_get_token.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_get_current_user_returns_none_if_no_token_in_db(self, mock_oidc_settings):
+        """get_current_user should return None/raise 401 if no token in session or DB."""
+        settings = get_settings()
+
+        # Create session with username but empty token
+        session_value = _create_session("barry", "", settings)
+
+        # Mock get_user_token to return None (no token stored)
+        with patch(
+            "paperless_webdav.auth.paperless.get_user_token", new_callable=AsyncMock
+        ) as mock_get_token:
+            mock_get_token.return_value = None
+
+            # Mock get_session to provide a database session
+            mock_db_session = MagicMock()
+            with patch(
+                "paperless_webdav.auth.paperless.get_session"
+            ) as mock_get_session:
+                async def async_gen():
+                    yield mock_db_session
+
+                mock_get_session.return_value = async_gen()
+
+                # get_current_user_optional should return None
+                user = await get_current_user_optional(
+                    session=session_value, settings=settings
+                )
+
+        assert user is None
+
+    @pytest.mark.asyncio
+    async def test_get_current_user_uses_session_token_if_present(self, mock_settings):
+        """get_current_user should use session token if present (not load from DB)."""
+        settings = get_settings()
+
+        # Create session with both username and token
+        session_value = _create_session("barry", "session-token", settings)
+
+        # Mock get_user_token - should NOT be called
+        with patch(
+            "paperless_webdav.auth.paperless.get_user_token", new_callable=AsyncMock
+        ) as mock_get_token:
+            user = await get_current_user(session=session_value, settings=settings)
+
+        assert user.username == "barry"
+        assert user.token == "session-token"
+        # DB lookup should NOT have been called since session has a token
+        mock_get_token.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_validate_session_returns_user_with_empty_token_for_oidc(
+        self, mock_oidc_settings
+    ):
+        """_validate_session should return user even with empty token (for DB lookup later)."""
+        settings = get_settings()
+
+        # Create session with empty token
+        session_value = _create_session("barry", "", settings)
+
+        # _validate_session should return the user (with empty token)
+        # The token loading from DB happens in get_current_user, not _validate_session
+        user = _validate_session(session_value, settings)
+
+        assert user is not None
+        assert user.username == "barry"
+        assert user.token == ""

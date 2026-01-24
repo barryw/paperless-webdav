@@ -10,7 +10,9 @@ from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from pydantic import BaseModel
 
 from paperless_webdav.config import get_settings, Settings
+from paperless_webdav.database import get_session
 from paperless_webdav.logging import get_logger
+from paperless_webdav.services.shares import get_user_token
 
 logger = get_logger(__name__)
 
@@ -125,11 +127,38 @@ def _validate_session(session_value: str, settings: Settings) -> AuthenticatedUs
         return None
 
 
+async def _load_token_from_db(username: str, settings: Settings) -> str | None:
+    """Load user's Paperless token from database.
+
+    Args:
+        username: The username to look up.
+        settings: Application settings.
+
+    Returns:
+        The decrypted token, or None if not found.
+    """
+    try:
+        async for db_session in get_session():
+            token = await get_user_token(
+                db_session,
+                username,
+                settings.encryption_key.get_secret_value(),
+            )
+            return token
+    except RuntimeError:
+        # Database not initialized yet
+        logger.debug("database_not_available_for_token_lookup")
+        return None
+
+
 async def get_current_user(
     session: Annotated[str | None, Cookie()] = None,
     settings: Annotated[Settings, Depends(get_settings)] = None,  # type: ignore[assignment]
 ) -> AuthenticatedUser:
     """Get the current authenticated user from session.
+
+    For OIDC users (session with username but empty token), loads the
+    Paperless token from the database.
 
     Raises HTTPException 401 if not authenticated.
     """
@@ -142,6 +171,20 @@ async def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication required",
         )
+
+    # If session has username but empty token (OIDC user), load token from DB
+    if user.username and not user.token:
+        db_token = await _load_token_from_db(user.username, settings)
+        if db_token:
+            logger.debug("loaded_token_from_db", username=user.username)
+            return AuthenticatedUser(username=user.username, token=db_token)
+        else:
+            # User has no token stored - they need to set up their token
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authentication required",
+            )
+
     return user
 
 
@@ -149,10 +192,29 @@ async def get_current_user_optional(
     session: Annotated[str | None, Cookie()] = None,
     settings: Annotated[Settings, Depends(get_settings)] = None,  # type: ignore[assignment]
 ) -> AuthenticatedUser | None:
-    """Get the current user if authenticated, None otherwise."""
+    """Get the current user if authenticated, None otherwise.
+
+    For OIDC users (session with username but empty token), loads the
+    Paperless token from the database.
+    """
     if settings is None:
         settings = get_settings()
-    return _validate_session(session or "", settings)
+
+    user = _validate_session(session or "", settings)
+    if user is None:
+        return None
+
+    # If session has username but empty token (OIDC user), load token from DB
+    if user.username and not user.token:
+        db_token = await _load_token_from_db(user.username, settings)
+        if db_token:
+            logger.debug("loaded_token_from_db", username=user.username)
+            return AuthenticatedUser(username=user.username, token=db_token)
+        else:
+            # No token in session or DB - not fully authenticated
+            return None
+
+    return user
 
 
 @router.post("/login", response_model=UserResponse)

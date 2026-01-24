@@ -53,12 +53,14 @@ def run_servers() -> None:
     # Initialize database synchronously before starting servers
     run_async(init_database(settings.database_url.get_secret_value()))
 
-    # Create WebDAV server
+    # Create WebDAV server with auth mode and encryption key for OIDC support
     webdav_server = WebDAVServer(
         host="0.0.0.0",
         port=settings.webdav_port,
         paperless_url=settings.paperless_url,
         share_loader=load_shares_sync,
+        auth_mode=settings.auth_mode,
+        encryption_key=settings.encryption_key.get_secret_value(),
     )
 
     # Run WebDAV server in background thread

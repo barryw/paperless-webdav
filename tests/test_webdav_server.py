@@ -49,7 +49,31 @@ class TestCreateWebdavApp:
                         share_loader=lambda: {},
                     )
 
-                    mock_auth.assert_called_once_with("http://paperless.test")
+                    mock_auth.assert_called_once_with(
+                        "http://paperless.test",
+                        auth_mode="paperless",
+                        encryption_key=None,
+                    )
+
+    def test_creates_authenticator_with_oidc_mode(self, mock_settings):
+        """Should pass auth_mode and encryption_key to authenticator for OIDC."""
+        with patch(
+            "paperless_webdav.webdav_server.PaperlessBasicAuthenticator"
+        ) as mock_auth:
+            with patch("paperless_webdav.webdav_server.PaperlessProvider"):
+                with patch("paperless_webdav.webdav_server.WsgiDAVApp"):
+                    create_webdav_app(
+                        paperless_url="http://paperless.test",
+                        share_loader=lambda: {},
+                        auth_mode="oidc",
+                        encryption_key="test-encryption-key",
+                    )
+
+                    mock_auth.assert_called_once_with(
+                        "http://paperless.test",
+                        auth_mode="oidc",
+                        encryption_key="test-encryption-key",
+                    )
 
     def test_stores_share_loader_in_config(self, mock_settings):
         """Should store share_loader in config for request handlers."""

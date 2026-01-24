@@ -16,20 +16,26 @@ logger = get_logger(__name__)
 def create_webdav_app(
     paperless_url: str,
     share_loader: Callable[[], dict[str, Any]],
+    auth_mode: str = "paperless",
+    encryption_key: str | None = None,
 ) -> WsgiDAVApp:
     """Create the wsgidav WSGI application.
 
     Args:
         paperless_url: Base URL of Paperless-ngx
         share_loader: Callable that returns dict of share configs
+        auth_mode: Authentication mode ("paperless" or "oidc")
+        encryption_key: Base64-encoded encryption key for OIDC token decryption
 
     Returns:
         Configured WsgiDAVApp instance
     """
     provider = PaperlessProvider(paperless_url=paperless_url)
 
-    # Create authenticator
-    authenticator = PaperlessBasicAuthenticator(paperless_url)
+    # Create authenticator with auth mode and encryption key
+    authenticator = PaperlessBasicAuthenticator(
+        paperless_url, auth_mode=auth_mode, encryption_key=encryption_key
+    )
 
     config = {
         "provider_mapping": {"/": provider},
@@ -64,6 +70,8 @@ class WebDAVServer:
         port: int,
         paperless_url: str,
         share_loader: Callable[[], dict[str, Any]],
+        auth_mode: str = "paperless",
+        encryption_key: str | None = None,
     ) -> None:
         """Initialize the WebDAV server.
 
@@ -72,10 +80,14 @@ class WebDAVServer:
             port: Port to bind to
             paperless_url: Base URL of Paperless-ngx
             share_loader: Callable that returns dict of share configs
+            auth_mode: Authentication mode ("paperless" or "oidc")
+            encryption_key: Base64-encoded encryption key for OIDC token decryption
         """
         self._app = create_webdav_app(
             paperless_url=paperless_url,
             share_loader=share_loader,
+            auth_mode=auth_mode,
+            encryption_key=encryption_key,
         )
         self._server = cheroot.wsgi.Server(
             (host, port),
