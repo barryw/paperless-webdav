@@ -302,3 +302,158 @@ async def test_shares_list_displays_expiry_date(app_with_db, auth_cookie):
 
     assert response.status_code == 200
     assert "2025" in response.text
+
+
+# --- Create/Edit Share Form Tests ---
+
+
+@pytest.mark.asyncio
+async def test_create_share_page_renders(app_with_db, auth_cookie, mock_settings):
+    """Create share page should render form."""
+    async with AsyncClient(
+        transport=ASGITransport(app=app_with_db), base_url="http://test"
+    ) as client:
+        response = await client.get("/ui/shares/new", cookies=auth_cookie)
+
+    assert response.status_code == 200
+    assert "Create Share" in response.text
+    assert 'name="name"' in response.text
+
+
+@pytest.mark.asyncio
+async def test_create_share_page_requires_auth(app_with_db):
+    """Create share page should redirect to login when not authenticated."""
+    async with AsyncClient(
+        transport=ASGITransport(app=app_with_db), base_url="http://test"
+    ) as client:
+        response = await client.get("/ui/shares/new", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/ui/login"
+
+
+@pytest.mark.asyncio
+async def test_create_share_page_has_all_fields(app_with_db, auth_cookie, mock_settings):
+    """Create share page should have all required form fields."""
+    async with AsyncClient(
+        transport=ASGITransport(app=app_with_db), base_url="http://test"
+    ) as client:
+        response = await client.get("/ui/shares/new", cookies=auth_cookie)
+
+    assert response.status_code == 200
+    assert 'name="include_tags"' in response.text
+    assert 'name="exclude_tags"' in response.text
+    assert 'name="read_only"' in response.text
+    assert 'name="done_folder_enabled"' in response.text
+    assert 'name="done_folder_name"' in response.text
+    assert 'name="done_tag"' in response.text
+    assert 'name="expires_at"' in response.text
+    assert 'name="allowed_users"' in response.text
+
+
+@pytest.mark.asyncio
+async def test_edit_share_page_requires_auth(app_with_db):
+    """Edit share page should redirect to login when not authenticated."""
+    async with AsyncClient(
+        transport=ASGITransport(app=app_with_db), base_url="http://test"
+    ) as client:
+        response = await client.get("/ui/shares/test-share/edit", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/ui/login"
+
+
+@pytest.mark.asyncio
+async def test_edit_share_page_renders_with_data(app_with_db, auth_cookie, mock_settings):
+    """Edit share page should render form with existing share data."""
+    mock_share = MagicMock(spec=Share)
+    mock_share.id = uuid4()
+    mock_share.name = "test-share"
+    mock_share.include_tags = ["inbox", "documents"]
+    mock_share.exclude_tags = ["private"]
+    mock_share.read_only = True
+    mock_share.done_folder_enabled = True
+    mock_share.done_folder_name = "processed"
+    mock_share.done_tag = "done"
+    mock_share.expires_at = datetime(2025, 12, 31, 23, 59, 59, tzinfo=timezone.utc)
+    mock_share.allowed_users = ["user1", "user2"]
+
+    with patch(
+        "paperless_webdav.ui.routes.get_share_by_name", new_callable=AsyncMock
+    ) as mock_get_share:
+        mock_get_share.return_value = mock_share
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app_with_db), base_url="http://test"
+        ) as client:
+            response = await client.get("/ui/shares/test-share/edit", cookies=auth_cookie)
+
+    assert response.status_code == 200
+    assert "Edit Share" in response.text
+    assert "test-share" in response.text
+    assert "inbox" in response.text
+    assert "documents" in response.text
+    assert "private" in response.text
+    assert "processed" in response.text
+    assert "user1" in response.text
+
+
+@pytest.mark.asyncio
+async def test_edit_share_page_name_field_disabled(app_with_db, auth_cookie, mock_settings):
+    """Edit share page should have name field disabled."""
+    mock_share = MagicMock(spec=Share)
+    mock_share.id = uuid4()
+    mock_share.name = "test-share"
+    mock_share.include_tags = []
+    mock_share.exclude_tags = []
+    mock_share.read_only = True
+    mock_share.done_folder_enabled = False
+    mock_share.done_folder_name = "done"
+    mock_share.done_tag = None
+    mock_share.expires_at = None
+    mock_share.allowed_users = []
+
+    with patch(
+        "paperless_webdav.ui.routes.get_share_by_name", new_callable=AsyncMock
+    ) as mock_get_share:
+        mock_get_share.return_value = mock_share
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app_with_db), base_url="http://test"
+        ) as client:
+            response = await client.get("/ui/shares/test-share/edit", cookies=auth_cookie)
+
+    assert response.status_code == 200
+    # Check that name field is disabled
+    assert "disabled" in response.text
+
+
+@pytest.mark.asyncio
+async def test_edit_share_page_redirects_if_not_found(app_with_db, auth_cookie, mock_settings):
+    """Edit share page should redirect to shares list if share not found."""
+    with patch(
+        "paperless_webdav.ui.routes.get_share_by_name", new_callable=AsyncMock
+    ) as mock_get_share:
+        mock_get_share.return_value = None
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app_with_db), base_url="http://test"
+        ) as client:
+            response = await client.get(
+                "/ui/shares/nonexistent/edit", cookies=auth_cookie, follow_redirects=False
+            )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/ui/shares"
+
+
+@pytest.mark.asyncio
+async def test_create_share_page_has_javascript_toggle(app_with_db, auth_cookie, mock_settings):
+    """Create share page should include JavaScript for done folder toggle."""
+    async with AsyncClient(
+        transport=ASGITransport(app=app_with_db), base_url="http://test"
+    ) as client:
+        response = await client.get("/ui/shares/new", cookies=auth_cookie)
+
+    assert response.status_code == 200
+    assert "toggleDoneFolderFields" in response.text

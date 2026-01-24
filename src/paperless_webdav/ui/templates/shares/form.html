@@ -1,0 +1,190 @@
+{% extends "base.html" %}
+
+{% block title %}{{ "Edit Share" if share else "Create Share" }} - Paperless WebDAV{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+    <div class="max-w-2xl mx-auto">
+        <div class="flex justify-between items-center mb-6">
+            <h1 class="text-2xl font-bold text-gray-800">
+                {{ "Edit Share" if share else "Create Share" }}
+            </h1>
+            <a href="/ui/shares" class="text-gray-600 hover:text-gray-800">
+                Back to Shares
+            </a>
+        </div>
+
+        <form method="POST" class="bg-white shadow-md rounded-lg p-6 space-y-6">
+            <!-- Share Name -->
+            <div>
+                <label for="name" class="block text-sm font-medium text-gray-700 mb-1">
+                    Share Name
+                </label>
+                <input type="text"
+                       id="name"
+                       name="name"
+                       value="{{ share.name if share else '' }}"
+                       {% if share %}disabled{% endif %}
+                       required
+                       pattern="^[a-zA-Z0-9][a-zA-Z0-9-]{0,62}$"
+                       class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 {% if share %}bg-gray-100{% endif %}"
+                       placeholder="my-share-name">
+                <p class="mt-1 text-sm text-gray-500">
+                    Alphanumeric with dashes, 1-63 characters. Cannot be changed after creation.
+                </p>
+            </div>
+
+            <!-- Include Tags -->
+            <div>
+                <label for="include_tags" class="block text-sm font-medium text-gray-700 mb-1">
+                    Include Tags
+                </label>
+                <input type="text"
+                       id="include_tags"
+                       name="include_tags"
+                       value="{{ share.include_tags | join(', ') if share and share.include_tags else '' }}"
+                       class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                       placeholder="tag1, tag2, tag3">
+                <p class="mt-1 text-sm text-gray-500">
+                    Comma-separated list of tags to include in this share.
+                </p>
+            </div>
+
+            <!-- Exclude Tags -->
+            <div>
+                <label for="exclude_tags" class="block text-sm font-medium text-gray-700 mb-1">
+                    Exclude Tags
+                </label>
+                <input type="text"
+                       id="exclude_tags"
+                       name="exclude_tags"
+                       value="{{ share.exclude_tags | join(', ') if share and share.exclude_tags else '' }}"
+                       class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                       placeholder="private, sensitive">
+                <p class="mt-1 text-sm text-gray-500">
+                    Comma-separated list of tags to exclude from this share.
+                </p>
+            </div>
+
+            <!-- Read Only -->
+            <div class="flex items-center">
+                <input type="checkbox"
+                       id="read_only"
+                       name="read_only"
+                       value="true"
+                       {% if not share or share.read_only %}checked{% endif %}
+                       class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded">
+                <label for="read_only" class="ml-2 block text-sm text-gray-700">
+                    Read Only
+                </label>
+            </div>
+            <p class="mt-1 text-sm text-gray-500 -mt-4 ml-6">
+                Prevent file modifications through this share.
+            </p>
+
+            <!-- Done Folder -->
+            <div class="border-t pt-6">
+                <div class="flex items-center mb-4">
+                    <input type="checkbox"
+                           id="done_folder_enabled"
+                           name="done_folder_enabled"
+                           value="true"
+                           {% if share and share.done_folder_enabled %}checked{% endif %}
+                           class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                           onchange="toggleDoneFolderFields()">
+                    <label for="done_folder_enabled" class="ml-2 block text-sm font-medium text-gray-700">
+                        Enable Done Folder
+                    </label>
+                </div>
+                <p class="text-sm text-gray-500 mb-4">
+                    Enable a special folder where files can be moved to mark them as processed.
+                </p>
+
+                <div id="done_folder_fields" class="space-y-4 pl-6 {% if not share or not share.done_folder_enabled %}hidden{% endif %}">
+                    <div>
+                        <label for="done_folder_name" class="block text-sm font-medium text-gray-700 mb-1">
+                            Done Folder Name
+                        </label>
+                        <input type="text"
+                               id="done_folder_name"
+                               name="done_folder_name"
+                               value="{{ share.done_folder_name if share else 'done' }}"
+                               class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                               placeholder="done">
+                    </div>
+
+                    <div>
+                        <label for="done_tag" class="block text-sm font-medium text-gray-700 mb-1">
+                            Done Tag
+                        </label>
+                        <input type="text"
+                               id="done_tag"
+                               name="done_tag"
+                               value="{{ share.done_tag if share and share.done_tag else '' }}"
+                               class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                               placeholder="processed">
+                        <p class="mt-1 text-sm text-gray-500">
+                            Tag to apply when a file is moved to the done folder.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Expires At -->
+            <div class="border-t pt-6">
+                <label for="expires_at" class="block text-sm font-medium text-gray-700 mb-1">
+                    Expires At
+                </label>
+                <input type="datetime-local"
+                       id="expires_at"
+                       name="expires_at"
+                       value="{{ share.expires_at.strftime('%Y-%m-%dT%H:%M') if share and share.expires_at else '' }}"
+                       class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+                <p class="mt-1 text-sm text-gray-500">
+                    Leave empty for no expiration.
+                </p>
+            </div>
+
+            <!-- Allowed Users -->
+            <div class="border-t pt-6">
+                <label for="allowed_users" class="block text-sm font-medium text-gray-700 mb-1">
+                    Allowed Users
+                </label>
+                <input type="text"
+                       id="allowed_users"
+                       name="allowed_users"
+                       value="{{ share.allowed_users | join(', ') if share and share.allowed_users else '' }}"
+                       class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                       placeholder="user1, user2">
+                <p class="mt-1 text-sm text-gray-500">
+                    Comma-separated list of usernames who can access this share (in addition to the owner).
+                </p>
+            </div>
+
+            <!-- Submit -->
+            <div class="flex justify-end space-x-4 border-t pt-6">
+                <a href="/ui/shares"
+                   class="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                    Cancel
+                </a>
+                <button type="submit"
+                        class="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                    {{ "Save Changes" if share else "Create Share" }}
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function toggleDoneFolderFields() {
+    const checkbox = document.getElementById('done_folder_enabled');
+    const fields = document.getElementById('done_folder_fields');
+    if (checkbox.checked) {
+        fields.classList.remove('hidden');
+    } else {
+        fields.classList.add('hidden');
+    }
+}
+</script>
+{% endblock %}
