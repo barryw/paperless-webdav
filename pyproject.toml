@@ -45,6 +45,10 @@ packages = ["src/paperless_webdav"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "-v --tb=short"
+filterwarnings = [
+    # AsyncMock creates coroutines that may not be awaited during gc cleanup
+    "ignore:coroutine.*was never awaited:RuntimeWarning",
+]
 
 [tool.ruff]
 line-length = 100

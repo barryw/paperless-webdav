@@ -10,9 +10,10 @@ import pytest
 # Filter expected warnings from mocking async functions in sync test context.
 # These warnings occur because AsyncMock coroutines are created but not awaited
 # when we mock async functions that are passed to run_async (which is also mocked).
-pytestmark = pytest.mark.filterwarnings(
-    "ignore:coroutine.*was never awaited:RuntimeWarning"
-)
+pytestmark = [
+    pytest.mark.filterwarnings("ignore:coroutine.*was never awaited:RuntimeWarning"),
+    pytest.mark.filterwarnings("ignore::pytest.PytestUnraisableExceptionWarning"),
+]
 
 
 @pytest.fixture
