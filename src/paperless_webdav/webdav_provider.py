@@ -669,6 +669,7 @@ class DoneFolderResource(DAVCollection):  # type: ignore[misc]
                 self._provider,
                 doc,
                 share=self._share,
+                in_done_folder=True,
             )
         return None
 
@@ -677,7 +678,7 @@ class DocumentResource(DAVNonCollection):  # type: ignore[misc]
     """WebDAV resource representing a Paperless document.
 
     Exposes document metadata (dates, etag) and content as a PDF file.
-    Supports move operations to done folder (adds done_tag).
+    Supports move operations to/from done folder (adds/removes done_tag).
     """
 
     def __init__(
@@ -687,6 +688,7 @@ class DocumentResource(DAVNonCollection):  # type: ignore[misc]
         provider: PaperlessProvider,
         document: PaperlessDocument,
         share: Share | None = None,
+        in_done_folder: bool = False,
     ) -> None:
         """Initialize the document resource.
 
@@ -696,11 +698,13 @@ class DocumentResource(DAVNonCollection):  # type: ignore[misc]
             provider: The parent PaperlessProvider
             document: The PaperlessDocument metadata
             share: Optional Share configuration (needed for move operations)
+            in_done_folder: Whether this document is located in the done folder
         """
         super().__init__(path, environ)
         self._provider = provider
         self.document = document
         self._share: Share | None = share
+        self._in_done_folder: bool = in_done_folder
         # Cache for downloaded content
         self._content: bytes | None = None
 
@@ -844,11 +848,15 @@ class DocumentResource(DAVNonCollection):  # type: ignore[misc]
             dest_path: The destination path (e.g., "/inbox/done/Doc.pdf")
 
         Returns:
-            True if the destination is inside the done folder
+            True if the destination is inside the done folder AND document
+            is not already in the done folder
         """
         if self._share is None:
             return False
         if not self._share.done_folder_enabled:
+            return False
+        # If already in done folder, no need to add tag again
+        if self._in_done_folder:
             return False
 
         # Parse destination path: /{share_name}/{done_folder_name}/{filename}
@@ -864,6 +872,32 @@ class DocumentResource(DAVNonCollection):  # type: ignore[misc]
             share_name == self._share.name
             and folder_name == self._share.done_folder_name
         )
+
+    def _is_move_from_done_folder_to_root(self, dest_path: str) -> bool:
+        """Check if this is a move from done folder to root.
+
+        Args:
+            dest_path: The destination path (e.g., "/inbox/Doc.pdf")
+
+        Returns:
+            True if moving from done folder to root (not to done folder)
+        """
+        if self._share is None:
+            return False
+        if not self._share.done_folder_enabled:
+            return False
+        if not self._in_done_folder:
+            return False
+
+        # Parse destination path: /{share_name}/{filename}
+        parts = [p for p in dest_path.split("/") if p]
+        if len(parts) != 2:
+            return False
+
+        share_name = parts[0]
+
+        # Check if it's moving to this share's root (not to done folder)
+        return share_name == self._share.name
 
     def _get_done_tag_id(self) -> int | None:
         """Get the done_tag ID by resolving the tag name.
@@ -892,7 +926,8 @@ class DocumentResource(DAVNonCollection):  # type: ignore[misc]
         """Move the document to a new location.
 
         When moving to the done folder, this adds the done_tag to the document.
-        The move is virtual - we're just adding a tag, not moving files.
+        When moving from done folder to root, this removes the done_tag.
+        The move is virtual - we're just adding/removing a tag, not moving files.
 
         Args:
             dest_path: The destination path
@@ -900,14 +935,28 @@ class DocumentResource(DAVNonCollection):  # type: ignore[misc]
         Returns:
             True if the move was successful
         """
-        if not self._is_move_to_done_folder(dest_path):
-            logger.debug(
-                "move_not_to_done_folder",
-                document_id=self.document.id,
-                dest_path=dest_path,
-            )
-            return True  # No-op for moves not to done folder
+        # Handle move TO done folder (add tag)
+        if self._is_move_to_done_folder(dest_path):
+            return self._handle_move_to_done_folder()
 
+        # Handle move FROM done folder to root (remove tag)
+        if self._is_move_from_done_folder_to_root(dest_path):
+            return self._handle_move_from_done_folder()
+
+        # No-op for other moves
+        logger.debug(
+            "move_no_tag_change",
+            document_id=self.document.id,
+            dest_path=dest_path,
+        )
+        return True
+
+    def _handle_move_to_done_folder(self) -> bool:
+        """Handle move to done folder by adding the done_tag.
+
+        Returns:
+            True if successful, False if client unavailable
+        """
         # Get the done_tag ID
         done_tag_id = self._get_done_tag_id()
         if done_tag_id is None:
@@ -938,6 +987,48 @@ class DocumentResource(DAVNonCollection):  # type: ignore[misc]
         except Exception as exc:
             logger.error(
                 "move_to_done_folder_failed",
+                document_id=self.document.id,
+                done_tag_id=done_tag_id,
+                error=str(exc),
+            )
+            return False
+
+    def _handle_move_from_done_folder(self) -> bool:
+        """Handle move from done folder to root by removing the done_tag.
+
+        Returns:
+            True if successful, False if client unavailable
+        """
+        # Get the done_tag ID
+        done_tag_id = self._get_done_tag_id()
+        if done_tag_id is None:
+            logger.warning(
+                "done_tag_not_found_for_removal",
+                document_id=self.document.id,
+                done_tag=self._share.done_tag if self._share else None,
+            )
+            return True  # No-op if tag not found
+
+        # Remove the done_tag from the document
+        client = self._provider._create_client(self.environ)
+        if client is None:
+            logger.warning(
+                "no_client_for_move_from_done",
+                document_id=self.document.id,
+            )
+            return False
+
+        try:
+            run_async(client.remove_tag_from_document(self.document.id, done_tag_id))
+            logger.info(
+                "moved_from_done_folder",
+                document_id=self.document.id,
+                done_tag_id=done_tag_id,
+            )
+            return True
+        except Exception as exc:
+            logger.error(
+                "move_from_done_folder_failed",
                 document_id=self.document.id,
                 done_tag_id=done_tag_id,
                 error=str(exc),
