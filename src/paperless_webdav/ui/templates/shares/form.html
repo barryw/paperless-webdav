@@ -36,33 +36,75 @@
 
             <!-- Include Tags -->
             <div>
-                <label for="include_tags" class="block text-sm font-medium text-gray-700 mb-1">
+                <label class="block text-sm font-medium text-gray-700 mb-1">
                     Include Tags
                 </label>
-                <input type="text"
-                       id="include_tags"
-                       name="include_tags"
-                       value="{{ share.include_tags | join(', ') if share and share.include_tags else '' }}"
-                       class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                       placeholder="tag1, tag2, tag3">
+                <div class="tag-input-container" data-field="include_tags" data-single="false">
+                    <div id="include_tags_chips" class="flex flex-wrap gap-2 mb-2">
+                        {% if share and share.include_tags %}
+                        {% for tag in share.include_tags %}
+                        <span class="tag-chip inline-flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-sm">
+                            {{ tag }}
+                            <button type="button" onclick="removeChip(this)" class="text-blue-600 hover:text-blue-800 font-bold">&times;</button>
+                            <input type="hidden" name="include_tags" value="{{ tag }}">
+                        </span>
+                        {% endfor %}
+                        {% endif %}
+                    </div>
+                    <div class="relative">
+                        <input type="text"
+                               id="include_tags_input"
+                               class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                               placeholder="Type to search tags..."
+                               autocomplete="off"
+                               hx-get="/ui/partials/tag-suggestions"
+                               hx-trigger="input changed delay:200ms"
+                               hx-target="#include_tags_suggestions"
+                               hx-include="this"
+                               name="q">
+                        <input type="hidden" name="field" value="include_tags">
+                        <div id="include_tags_suggestions" class="relative"></div>
+                    </div>
+                </div>
                 <p class="mt-1 text-sm text-gray-500">
-                    Comma-separated list of tags to include in this share.
+                    Tags to include in this share. Documents must have all selected tags.
                 </p>
             </div>
 
             <!-- Exclude Tags -->
             <div>
-                <label for="exclude_tags" class="block text-sm font-medium text-gray-700 mb-1">
+                <label class="block text-sm font-medium text-gray-700 mb-1">
                     Exclude Tags
                 </label>
-                <input type="text"
-                       id="exclude_tags"
-                       name="exclude_tags"
-                       value="{{ share.exclude_tags | join(', ') if share and share.exclude_tags else '' }}"
-                       class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                       placeholder="private, sensitive">
+                <div class="tag-input-container" data-field="exclude_tags" data-single="false">
+                    <div id="exclude_tags_chips" class="flex flex-wrap gap-2 mb-2">
+                        {% if share and share.exclude_tags %}
+                        {% for tag in share.exclude_tags %}
+                        <span class="tag-chip inline-flex items-center gap-1 px-2 py-1 bg-red-100 text-red-800 rounded-full text-sm">
+                            {{ tag }}
+                            <button type="button" onclick="removeChip(this)" class="text-red-600 hover:text-red-800 font-bold">&times;</button>
+                            <input type="hidden" name="exclude_tags" value="{{ tag }}">
+                        </span>
+                        {% endfor %}
+                        {% endif %}
+                    </div>
+                    <div class="relative">
+                        <input type="text"
+                               id="exclude_tags_input"
+                               class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                               placeholder="Type to search tags..."
+                               autocomplete="off"
+                               hx-get="/ui/partials/tag-suggestions"
+                               hx-trigger="input changed delay:200ms"
+                               hx-target="#exclude_tags_suggestions"
+                               hx-include="this"
+                               name="q">
+                        <input type="hidden" name="field" value="exclude_tags">
+                        <div id="exclude_tags_suggestions" class="relative"></div>
+                    </div>
+                </div>
                 <p class="mt-1 text-sm text-gray-500">
-                    Comma-separated list of tags to exclude from this share.
+                    Tags to exclude from this share. Documents with any of these tags will be hidden.
                 </p>
             </div>
 
@@ -114,15 +156,35 @@
                     </div>
 
                     <div>
-                        <label for="done_tag" class="block text-sm font-medium text-gray-700 mb-1">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">
                             Done Tag
                         </label>
-                        <input type="text"
-                               id="done_tag"
-                               name="done_tag"
-                               value="{{ share.done_tag if share and share.done_tag else '' }}"
-                               class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                               placeholder="processed">
+                        <div class="tag-input-container" data-field="done_tag" data-single="true">
+                            <div id="done_tag_chips" class="flex flex-wrap gap-2 mb-2">
+                                {% if share and share.done_tag %}
+                                <span class="tag-chip inline-flex items-center gap-1 px-2 py-1 bg-green-100 text-green-800 rounded-full text-sm">
+                                    {{ share.done_tag }}
+                                    <button type="button" onclick="removeChip(this)" class="text-green-600 hover:text-green-800 font-bold">&times;</button>
+                                    <input type="hidden" name="done_tag" value="{{ share.done_tag }}">
+                                </span>
+                                {% endif %}
+                            </div>
+                            <div class="relative">
+                                <input type="text"
+                                       id="done_tag_input"
+                                       class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                                       placeholder="Type to search tags..."
+                                       autocomplete="off"
+                                       hx-get="/ui/partials/tag-suggestions"
+                                       hx-trigger="input changed delay:200ms"
+                                       hx-target="#done_tag_suggestions"
+                                       hx-include="this"
+                                       name="q"
+                                       {% if share and share.done_tag %}disabled{% endif %}>
+                                <input type="hidden" name="field" value="done_tag">
+                                <div id="done_tag_suggestions" class="relative"></div>
+                            </div>
+                        </div>
                         <p class="mt-1 text-sm text-gray-500">
                             Tag to apply when a file is moved to the done folder.
                         </p>
@@ -186,5 +248,89 @@ function toggleDoneFolderFields() {
         fields.classList.add('hidden');
     }
 }
+
+function selectTag(element) {
+    const tagId = element.dataset.tagId;
+    const tagName = element.dataset.tagName;
+    const tagColor = element.dataset.tagColor;
+    const field = element.dataset.field;
+    const isSingle = element.dataset.single === 'true';
+
+    const chipsContainer = document.getElementById(field + '_chips');
+    const inputField = document.getElementById(field + '_input');
+    const suggestionsContainer = document.getElementById(field + '_suggestions');
+
+    // Check if tag already exists
+    const existingChips = chipsContainer.querySelectorAll('input[type="hidden"]');
+    for (const chip of existingChips) {
+        if (chip.value === tagName) {
+            // Tag already selected, just clear and return
+            inputField.value = '';
+            suggestionsContainer.innerHTML = '';
+            return;
+        }
+    }
+
+    // For single-select fields, clear existing chips first
+    if (isSingle) {
+        chipsContainer.innerHTML = '';
+    }
+
+    // Determine chip color based on field
+    let chipColorClass = 'bg-blue-100 text-blue-800';
+    let buttonColorClass = 'text-blue-600 hover:text-blue-800';
+    if (field === 'exclude_tags') {
+        chipColorClass = 'bg-red-100 text-red-800';
+        buttonColorClass = 'text-red-600 hover:text-red-800';
+    } else if (field === 'done_tag') {
+        chipColorClass = 'bg-green-100 text-green-800';
+        buttonColorClass = 'text-green-600 hover:text-green-800';
+    }
+
+    // Create new chip
+    const chip = document.createElement('span');
+    chip.className = 'tag-chip inline-flex items-center gap-1 px-2 py-1 ' + chipColorClass + ' rounded-full text-sm';
+    chip.innerHTML = `
+        <span class="w-2 h-2 rounded-full" style="background-color: ${tagColor};"></span>
+        ${tagName}
+        <button type="button" onclick="removeChip(this)" class="${buttonColorClass} font-bold">&times;</button>
+        <input type="hidden" name="${field}" value="${tagName}">
+    `;
+
+    chipsContainer.appendChild(chip);
+
+    // Clear input and suggestions
+    inputField.value = '';
+    suggestionsContainer.innerHTML = '';
+
+    // For single-select, disable the input
+    if (isSingle) {
+        inputField.disabled = true;
+    }
+}
+
+function removeChip(button) {
+    const chip = button.closest('.tag-chip');
+    const container = chip.closest('.tag-input-container');
+    const field = container.dataset.field;
+    const isSingle = container.dataset.single === 'true';
+    const inputField = document.getElementById(field + '_input');
+
+    chip.remove();
+
+    // For single-select, re-enable the input when chip is removed
+    if (isSingle) {
+        inputField.disabled = false;
+    }
+}
+
+// Close suggestions when clicking outside
+document.addEventListener('click', function(event) {
+    if (!event.target.closest('.tag-input-container')) {
+        document.querySelectorAll('[id$="_suggestions"]').forEach(function(el) {
+            el.innerHTML = '';
+        });
+    }
+});
 </script>
 {% endblock %}

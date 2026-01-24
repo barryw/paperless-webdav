@@ -11,6 +11,7 @@ from itsdangerous import URLSafeTimedSerializer
 from paperless_webdav.app import create_app
 from paperless_webdav.dependencies import get_db_session
 from paperless_webdav.models import Share
+from paperless_webdav.paperless_client import PaperlessTag
 
 
 @pytest.fixture
@@ -341,12 +342,14 @@ async def test_create_share_page_has_all_fields(app_with_db, auth_cookie, mock_s
         response = await client.get("/ui/shares/new", cookies=auth_cookie)
 
     assert response.status_code == 200
-    assert 'name="include_tags"' in response.text
-    assert 'name="exclude_tags"' in response.text
+    # Tag fields use HTMX autocomplete containers with data-field attributes
+    assert 'data-field="include_tags"' in response.text
+    assert 'data-field="exclude_tags"' in response.text
+    assert 'data-field="done_tag"' in response.text
+    # Other fields are standard inputs
     assert 'name="read_only"' in response.text
     assert 'name="done_folder_enabled"' in response.text
     assert 'name="done_folder_name"' in response.text
-    assert 'name="done_tag"' in response.text
     assert 'name="expires_at"' in response.text
     assert 'name="allowed_users"' in response.text
 
@@ -457,3 +460,181 @@ async def test_create_share_page_has_javascript_toggle(app_with_db, auth_cookie,
 
     assert response.status_code == 200
     assert "toggleDoneFolderFields" in response.text
+
+
+# --- Tag Autocomplete Tests ---
+
+
+@pytest.mark.asyncio
+async def test_tag_suggestions_returns_matches(app_with_db, auth_cookie, mock_settings):
+    """Tag suggestions should return matching tags from Paperless."""
+    with patch("paperless_webdav.ui.routes.PaperlessClient") as mock_client_class:
+        mock_client = MagicMock()
+        mock_client.search_tags = AsyncMock(
+            return_value=[
+                PaperlessTag(id=1, name="invoices", slug="invoices", color="#ff0000"),
+                PaperlessTag(id=2, name="income", slug="income", color="#00ff00"),
+            ]
+        )
+        mock_client_class.return_value = mock_client
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app_with_db), base_url="http://test"
+        ) as client:
+            response = await client.get(
+                "/ui/partials/tag-suggestions",
+                params={"q": "in", "field": "include_tags"},
+                cookies=auth_cookie,
+            )
+
+    assert response.status_code == 200
+    assert "invoices" in response.text
+    assert "income" in response.text
+
+
+@pytest.mark.asyncio
+async def test_tag_suggestions_requires_auth(app_with_db):
+    """Tag suggestions endpoint should require authentication."""
+    async with AsyncClient(
+        transport=ASGITransport(app=app_with_db), base_url="http://test"
+    ) as client:
+        response = await client.get(
+            "/ui/partials/tag-suggestions",
+            params={"q": "test", "field": "include_tags"},
+        )
+
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_tag_suggestions_shows_color_indicator(app_with_db, auth_cookie, mock_settings):
+    """Tag suggestions should display color indicators."""
+    with patch("paperless_webdav.ui.routes.PaperlessClient") as mock_client_class:
+        mock_client = MagicMock()
+        mock_client.search_tags = AsyncMock(
+            return_value=[
+                PaperlessTag(id=1, name="invoices", slug="invoices", color="#ff0000"),
+            ]
+        )
+        mock_client_class.return_value = mock_client
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app_with_db), base_url="http://test"
+        ) as client:
+            response = await client.get(
+                "/ui/partials/tag-suggestions",
+                params={"q": "inv", "field": "include_tags"},
+                cookies=auth_cookie,
+            )
+
+    assert response.status_code == 200
+    assert "#ff0000" in response.text
+
+
+@pytest.mark.asyncio
+async def test_tag_suggestions_empty_query_returns_empty(app_with_db, auth_cookie, mock_settings):
+    """Tag suggestions with empty query should not search."""
+    with patch("paperless_webdav.ui.routes.PaperlessClient") as mock_client_class:
+        mock_client = MagicMock()
+        mock_client.search_tags = AsyncMock(return_value=[])
+        mock_client_class.return_value = mock_client
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app_with_db), base_url="http://test"
+        ) as client:
+            response = await client.get(
+                "/ui/partials/tag-suggestions",
+                params={"q": "", "field": "include_tags"},
+                cookies=auth_cookie,
+            )
+
+    assert response.status_code == 200
+    # Should not have called search_tags with empty query
+    mock_client.search_tags.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_tag_suggestions_no_matches_shows_message(app_with_db, auth_cookie, mock_settings):
+    """Tag suggestions with no matches should show appropriate message."""
+    with patch("paperless_webdav.ui.routes.PaperlessClient") as mock_client_class:
+        mock_client = MagicMock()
+        mock_client.search_tags = AsyncMock(return_value=[])
+        mock_client_class.return_value = mock_client
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app_with_db), base_url="http://test"
+        ) as client:
+            response = await client.get(
+                "/ui/partials/tag-suggestions",
+                params={"q": "nonexistent", "field": "include_tags"},
+                cookies=auth_cookie,
+            )
+
+    assert response.status_code == 200
+    assert "No tags found" in response.text
+    assert "nonexistent" in response.text
+
+
+@pytest.mark.asyncio
+async def test_tag_suggestions_single_select_field(app_with_db, auth_cookie, mock_settings):
+    """Tag suggestions for done_tag should indicate single select mode."""
+    with patch("paperless_webdav.ui.routes.PaperlessClient") as mock_client_class:
+        mock_client = MagicMock()
+        mock_client.search_tags = AsyncMock(
+            return_value=[
+                PaperlessTag(id=1, name="processed", slug="processed", color="#00ff00"),
+            ]
+        )
+        mock_client_class.return_value = mock_client
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app_with_db), base_url="http://test"
+        ) as client:
+            response = await client.get(
+                "/ui/partials/tag-suggestions",
+                params={"q": "proc", "field": "done_tag"},
+                cookies=auth_cookie,
+            )
+
+    assert response.status_code == 200
+    assert 'data-single="true"' in response.text
+
+
+@pytest.mark.asyncio
+async def test_tag_suggestions_multi_select_field(app_with_db, auth_cookie, mock_settings):
+    """Tag suggestions for include_tags should indicate multi select mode."""
+    with patch("paperless_webdav.ui.routes.PaperlessClient") as mock_client_class:
+        mock_client = MagicMock()
+        mock_client.search_tags = AsyncMock(
+            return_value=[
+                PaperlessTag(id=1, name="invoices", slug="invoices", color="#ff0000"),
+            ]
+        )
+        mock_client_class.return_value = mock_client
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app_with_db), base_url="http://test"
+        ) as client:
+            response = await client.get(
+                "/ui/partials/tag-suggestions",
+                params={"q": "inv", "field": "include_tags"},
+                cookies=auth_cookie,
+            )
+
+    assert response.status_code == 200
+    assert 'data-single="false"' in response.text
+
+
+@pytest.mark.asyncio
+async def test_form_has_htmx_autocomplete(app_with_db, auth_cookie, mock_settings):
+    """Create share form should have HTMX autocomplete for tag fields."""
+    async with AsyncClient(
+        transport=ASGITransport(app=app_with_db), base_url="http://test"
+    ) as client:
+        response = await client.get("/ui/shares/new", cookies=auth_cookie)
+
+    assert response.status_code == 200
+    assert "hx-get" in response.text
+    assert "/ui/partials/tag-suggestions" in response.text
+    assert "hx-trigger" in response.text
+    assert "hx-target" in response.text

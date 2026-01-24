@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,6 +17,7 @@ from paperless_webdav.auth.paperless import (
 from paperless_webdav.config import Settings, get_settings
 from paperless_webdav.dependencies import get_db_session
 from paperless_webdav.logging import get_logger
+from paperless_webdav.paperless_client import PaperlessClient
 from paperless_webdav.services.shares import get_share_by_name, get_user_shares
 
 logger = get_logger(__name__)
@@ -139,4 +140,42 @@ async def edit_share_page(
         request=request,
         name="shares/form.html",
         context={"share": share, "username": current_user.username},
+    )
+
+
+@router.get("/partials/tag-suggestions", response_class=HTMLResponse, response_model=None)
+async def tag_suggestions(
+    request: Request,
+    q: Annotated[str, Query(description="Tag name search query")] = "",
+    field: Annotated[str, Query(description="Target field name")] = "include_tags",
+    current_user: Annotated[AuthenticatedUser | None, Depends(get_current_user_optional)] = None,
+    settings: Annotated[Settings, Depends(get_settings)] = None,
+) -> HTMLResponse | RedirectResponse:
+    """Return tag suggestions as HTML partial for HTMX autocomplete.
+
+    Requires authentication - returns 401 if not authenticated.
+    Searches Paperless for tags matching the query string.
+    """
+    if current_user is None:
+        return HTMLResponse(content="", status_code=401)
+
+    # Single-select fields
+    single_fields = {"done_tag"}
+    is_single = field in single_fields
+
+    tags = []
+    if q and len(q) >= 1:
+        client = PaperlessClient(base_url=settings.paperless_url, token=current_user.token)
+        tags = await client.search_tags(q)
+        logger.debug("tag_suggestions_fetched", query=q, field=field, count=len(tags))
+
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/tag_suggestions.html",
+        context={
+            "tags": tags,
+            "field": field,
+            "single": is_single,
+            "query": q,
+        },
     )
