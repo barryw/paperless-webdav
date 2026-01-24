@@ -1,87 +1,59 @@
 # src/paperless_webdav/api/shares.py
 """Share CRUD API endpoints."""
 
-from datetime import datetime
 from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from paperless_webdav.auth import AuthenticatedUser, get_current_user
+from paperless_webdav.dependencies import get_db_session
 from paperless_webdav.logging import get_logger
+from paperless_webdav.models import Share
 from paperless_webdav.schemas import ShareCreate, ShareResponse, ShareUpdate
+from paperless_webdav.services import shares as share_service
 
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/shares", tags=["shares"])
 
 
-class Share:
-    """Placeholder share type for database operations."""
-
-    id: UUID
-    name: str
-    owner_id: UUID
-    include_tags: list[str]
-    exclude_tags: list[str]
-    expires_at: datetime | None
-    read_only: bool
-    done_folder_enabled: bool
-    done_folder_name: str
-    done_tag: str | None
-    allowed_users: list[str]
-    created_at: datetime
-    updated_at: datetime
-
-
 # =============================================================================
-# Placeholder functions (to be wired to real implementations in Task 2.6)
+# Service Function Wrappers (for easy mocking in tests)
 # =============================================================================
 
 
-async def get_user_shares(username: str) -> list[Share]:
-    """
-    Placeholder: Get all shares owned by or accessible to the user.
-
-    Will be wired to database in Task 2.6.
-    """
-    return []
+async def get_user_shares(session: AsyncSession, username: str) -> list[Share]:
+    """Get all shares owned by or accessible to the user."""
+    return await share_service.get_user_shares(session, username)
 
 
-async def get_share_by_name(name: str, username: str) -> Share | None:
-    """
-    Placeholder: Get a share by name if accessible to user.
-
-    Will be wired to database in Task 2.6.
-    """
-    return None
+async def get_share_by_name(session: AsyncSession, name: str, username: str) -> Share | None:
+    """Get a share by name if accessible to user."""
+    return await share_service.get_share_by_name(session, name, username)
 
 
-async def create_share(username: str, share_data: ShareCreate) -> Share:
-    """
-    Placeholder: Create a new share.
-
-    Will be wired to database in Task 2.6.
-    """
-    raise NotImplementedError("Database not connected")
+async def is_share_owner(session: AsyncSession, share: Share, username: str) -> bool:
+    """Check if user is the owner of a share."""
+    return await share_service.is_share_owner(session, share, username)
 
 
-async def update_share(share_id: UUID, share_data: ShareUpdate) -> Share:
-    """
-    Placeholder: Update an existing share.
-
-    Will be wired to database in Task 2.6.
-    """
-    raise NotImplementedError("Database not connected")
+async def create_share(session: AsyncSession, username: str, share_data: ShareCreate) -> Share:
+    """Create a new share."""
+    return await share_service.create_share(session, username, share_data)
 
 
-async def delete_share(name: str, username: str) -> bool:
-    """
-    Placeholder: Delete a share.
+async def update_share(
+    session: AsyncSession, share_id: UUID, share_data: ShareUpdate
+) -> Share | None:
+    """Update an existing share."""
+    return await share_service.update_share(session, share_id, share_data)
 
-    Will be wired to database in Task 2.6.
-    """
-    raise NotImplementedError("Database not connected")
+
+async def delete_share(session: AsyncSession, name: str, username: str) -> bool:
+    """Delete a share."""
+    return await share_service.delete_share(session, name, username)
 
 
 async def audit_log(
@@ -91,9 +63,9 @@ async def audit_log(
     details: dict[str, Any] | None = None,
 ) -> None:
     """
-    Placeholder: Log an audit event.
+    Log an audit event.
 
-    Will be wired to database in Task 2.6.
+    TODO: Wire to database audit log in a future task.
     """
     logger.info(
         "audit_event",
@@ -112,13 +84,14 @@ async def audit_log(
 @router.get("", response_model=list[ShareResponse])
 async def list_shares(
     current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> list[ShareResponse]:
     """
     List all shares accessible to the current user.
 
     Returns shares owned by or shared with the user.
     """
-    shares = await get_user_shares(current_user.username)
+    shares = await get_user_shares(session, current_user.username)
     logger.debug("shares_listed", username=current_user.username, count=len(shares))
     return [ShareResponse.model_validate(share) for share in shares]
 
@@ -127,6 +100,7 @@ async def list_shares(
 async def create_share_endpoint(
     share_data: ShareCreate,
     current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> ShareResponse:
     """
     Create a new share.
@@ -134,14 +108,14 @@ async def create_share_endpoint(
     The current user becomes the owner of the share.
     """
     # Check if share with this name already exists
-    existing = await get_share_by_name(share_data.name, current_user.username)
+    existing = await get_share_by_name(session, share_data.name, current_user.username)
     if existing:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Share with name '{share_data.name}' already exists",
         )
 
-    share = await create_share(current_user.username, share_data)
+    share = await create_share(session, current_user.username, share_data)
 
     await audit_log(
         event_type="share_created",
@@ -158,13 +132,14 @@ async def create_share_endpoint(
 async def get_share(
     name: str,
     current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> ShareResponse:
     """
     Get a specific share by name.
 
     Returns 404 if the share doesn't exist or is not accessible to the user.
     """
-    share = await get_share_by_name(name, current_user.username)
+    share = await get_share_by_name(session, name, current_user.username)
     if not share:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -178,20 +153,28 @@ async def update_share_endpoint(
     name: str,
     share_data: ShareUpdate,
     current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> ShareResponse:
     """
     Update an existing share.
 
     Only the owner can update a share.
     """
-    share = await get_share_by_name(name, current_user.username)
+    share = await get_share_by_name(session, name, current_user.username)
     if not share:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Share '{name}' not found",
         )
 
-    updated_share = await update_share(share.id, share_data)
+    # Only the owner can update a share
+    if not await is_share_owner(session, share, current_user.username):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the owner can update a share",
+        )
+
+    updated_share = await update_share(session, share.id, share_data)
 
     await audit_log(
         event_type="share_updated",
@@ -208,13 +191,14 @@ async def update_share_endpoint(
 async def delete_share_endpoint(
     name: str,
     current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> Response:
     """
     Delete a share.
 
     Only the owner can delete a share.
     """
-    deleted = await delete_share(name, current_user.username)
+    deleted = await delete_share(session, name, current_user.username)
     if not deleted:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

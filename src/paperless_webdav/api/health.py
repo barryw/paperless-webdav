@@ -1,8 +1,13 @@
 """Health check endpoints for liveness and readiness probes."""
 
-from fastapi import APIRouter, Response
+from typing import Annotated
 
+from fastapi import APIRouter, Depends, Response
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from paperless_webdav.dependencies import get_db_session_optional
 from paperless_webdav.logging import get_logger
+from paperless_webdav.services.shares import check_db_connectivity
 
 logger = get_logger(__name__)
 
@@ -21,7 +26,10 @@ async def health_check() -> dict:
 
 
 @router.get("/ready")
-async def readiness_check(response: Response) -> dict:
+async def readiness_check(
+    response: Response,
+    session: Annotated[AsyncSession | None, Depends(get_db_session_optional)] = None,
+) -> dict:
     """
     Readiness probe endpoint.
 
@@ -29,10 +37,14 @@ async def readiness_check(response: Response) -> dict:
     Checks database connectivity and other dependencies.
     Returns 503 if not ready.
     """
-    # TODO: Implement actual database connectivity check in Task 2.6
+    # Check database connectivity
+    db_connected = False
+    if session is not None:
+        db_connected = await check_db_connectivity(session)
+
     checks = {
-        "database": False,
-        "paperless": False,
+        "database": db_connected,
+        "paperless": False,  # TODO: Implement in future task
     }
 
     all_ready = all(checks.values())

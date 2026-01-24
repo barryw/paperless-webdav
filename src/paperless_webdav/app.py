@@ -11,6 +11,7 @@ from paperless_webdav.api.shares import router as shares_router
 from paperless_webdav.api.tags import router as tags_router
 from paperless_webdav.auth import auth_router
 from paperless_webdav.config import get_settings
+from paperless_webdav import database
 from paperless_webdav.logging import setup_logging, get_logger
 
 logger = get_logger(__name__)
@@ -23,14 +24,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     setup_logging(settings.log_level, settings.log_format)
     logger.info("application_starting", admin_port=settings.admin_port)
 
-    # TODO: Initialize database in Task 2.6
+    # Initialize database
+    await database.init_database(settings.database_url.get_secret_value())
+    logger.info("database_initialized")
+
     # TODO: Initialize Paperless client
 
     yield
 
     # Cleanup
     logger.info("application_stopping")
-    # TODO: Close database connections
+    await database.close_database()
+    logger.info("database_closed")
 
 
 def create_app() -> FastAPI:

@@ -3,7 +3,7 @@
 
 import pytest
 from httpx import AsyncClient, ASGITransport
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID, uuid4
 from dataclasses import dataclass
 from datetime import datetime
@@ -46,12 +46,30 @@ def mock_user():
 
 
 @pytest.fixture
-def app_with_auth(mock_settings, mock_user):
-    """Create test application with mocked auth."""
+def mock_session():
+    """Create a mock database session."""
+    session = MagicMock()
+    session.execute = AsyncMock()
+    session.commit = AsyncMock()
+    session.refresh = AsyncMock()
+    session.add = MagicMock()
+    session.delete = AsyncMock()
+    return session
+
+
+@pytest.fixture
+def app_with_auth(mock_settings, mock_user, mock_session):
+    """Create test application with mocked auth and database session."""
     app = create_app()
 
     # Override the auth dependency
     app.dependency_overrides[auth_module.get_current_user] = lambda: mock_user
+
+    # Override the database session dependency
+    async def mock_get_session():
+        yield mock_session
+
+    app.dependency_overrides[shares_module.get_db_session] = mock_get_session
 
     yield app
 
@@ -60,7 +78,7 @@ def app_with_auth(mock_settings, mock_user):
 
 
 @pytest.mark.asyncio
-async def test_list_shares_empty(app_with_auth, mock_user):
+async def test_list_shares_empty(app_with_auth, mock_user, mock_session):
     """List shares should return empty list initially."""
     with patch.object(shares_module, "get_user_shares", new_callable=AsyncMock) as mock_get:
         mock_get.return_value = []
@@ -75,7 +93,7 @@ async def test_list_shares_empty(app_with_auth, mock_user):
 
 
 @pytest.mark.asyncio
-async def test_create_share(app_with_auth, mock_user):
+async def test_create_share(app_with_auth, mock_user, mock_session):
     """Create share should return the new share."""
     with patch.object(
         shares_module, "get_share_by_name", new_callable=AsyncMock
@@ -117,7 +135,7 @@ async def test_create_share(app_with_auth, mock_user):
 
 
 @pytest.mark.asyncio
-async def test_create_share_invalid_name(app_with_auth, mock_user):
+async def test_create_share_invalid_name(app_with_auth, mock_user, mock_session):
     """Create share with invalid name should return 422."""
     async with AsyncClient(
         transport=ASGITransport(app=app_with_auth), base_url="http://test"
@@ -134,7 +152,7 @@ async def test_create_share_invalid_name(app_with_auth, mock_user):
 
 
 @pytest.mark.asyncio
-async def test_delete_share(app_with_auth, mock_user):
+async def test_delete_share(app_with_auth, mock_user, mock_session):
     """Delete share should return 204."""
     with patch.object(shares_module, "delete_share", new_callable=AsyncMock) as mock_delete:
         mock_delete.return_value = True
@@ -148,7 +166,7 @@ async def test_delete_share(app_with_auth, mock_user):
 
 
 @pytest.mark.asyncio
-async def test_list_shares_with_items(app_with_auth, mock_user):
+async def test_list_shares_with_items(app_with_auth, mock_user, mock_session):
     """List shares should return shares for the user."""
     share_id = uuid4()
     with patch.object(shares_module, "get_user_shares", new_callable=AsyncMock) as mock_get:
@@ -181,7 +199,7 @@ async def test_list_shares_with_items(app_with_auth, mock_user):
 
 
 @pytest.mark.asyncio
-async def test_get_share(app_with_auth, mock_user):
+async def test_get_share(app_with_auth, mock_user, mock_session):
     """Get specific share by name."""
     share_id = uuid4()
     with patch.object(
@@ -211,7 +229,7 @@ async def test_get_share(app_with_auth, mock_user):
 
 
 @pytest.mark.asyncio
-async def test_get_share_not_found(app_with_auth, mock_user):
+async def test_get_share_not_found(app_with_auth, mock_user, mock_session):
     """Get non-existent share should return 404."""
     with patch.object(
         shares_module, "get_share_by_name", new_callable=AsyncMock
@@ -227,7 +245,7 @@ async def test_get_share_not_found(app_with_auth, mock_user):
 
 
 @pytest.mark.asyncio
-async def test_update_share(app_with_auth, mock_user):
+async def test_update_share(app_with_auth, mock_user, mock_session):
     """Update share should return updated share."""
     share_id = uuid4()
     with patch.object(
@@ -247,40 +265,45 @@ async def test_update_share(app_with_auth, mock_user):
         )
 
         with patch.object(
-            shares_module, "update_share", new_callable=AsyncMock
-        ) as mock_update:
-            mock_update.return_value = MockShare(
-                id=share_id,
-                name="tax2025",
-                include_tags=["tax", "2025", "receipts"],  # Updated
-                exclude_tags=["personal"],  # Updated
-                expires_at=None,
-                read_only=True,
-                done_folder_enabled=False,
-                done_folder_name="done",
-                done_tag=None,
-                allowed_users=[],
-            )
+            shares_module, "is_share_owner", new_callable=AsyncMock
+        ) as mock_is_owner:
+            mock_is_owner.return_value = True  # User is owner
 
-            async with AsyncClient(
-                transport=ASGITransport(app=app_with_auth), base_url="http://test"
-            ) as client:
-                response = await client.put(
-                    "/api/shares/tax2025",
-                    json={
-                        "include_tags": ["tax", "2025", "receipts"],
-                        "exclude_tags": ["personal"],
-                    },
+            with patch.object(
+                shares_module, "update_share", new_callable=AsyncMock
+            ) as mock_update:
+                mock_update.return_value = MockShare(
+                    id=share_id,
+                    name="tax2025",
+                    include_tags=["tax", "2025", "receipts"],  # Updated
+                    exclude_tags=["personal"],  # Updated
+                    expires_at=None,
+                    read_only=True,
+                    done_folder_enabled=False,
+                    done_folder_name="done",
+                    done_tag=None,
+                    allowed_users=[],
                 )
 
-            assert response.status_code == 200
-            data = response.json()
-            assert data["include_tags"] == ["tax", "2025", "receipts"]
-            assert data["exclude_tags"] == ["personal"]
+                async with AsyncClient(
+                    transport=ASGITransport(app=app_with_auth), base_url="http://test"
+                ) as client:
+                    response = await client.put(
+                        "/api/shares/tax2025",
+                        json={
+                            "include_tags": ["tax", "2025", "receipts"],
+                            "exclude_tags": ["personal"],
+                        },
+                    )
+
+                assert response.status_code == 200
+                data = response.json()
+                assert data["include_tags"] == ["tax", "2025", "receipts"]
+                assert data["exclude_tags"] == ["personal"]
 
 
 @pytest.mark.asyncio
-async def test_delete_share_not_found(app_with_auth, mock_user):
+async def test_delete_share_not_found(app_with_auth, mock_user, mock_session):
     """Delete non-existent share should return 404."""
     with patch.object(shares_module, "delete_share", new_callable=AsyncMock) as mock_delete:
         mock_delete.return_value = False
@@ -294,7 +317,7 @@ async def test_delete_share_not_found(app_with_auth, mock_user):
 
 
 @pytest.mark.asyncio
-async def test_create_share_duplicate_name(app_with_auth, mock_user):
+async def test_create_share_duplicate_name(app_with_auth, mock_user, mock_session):
     """Create share with existing name should return 409."""
     with patch.object(
         shares_module, "get_share_by_name", new_callable=AsyncMock
@@ -327,7 +350,7 @@ async def test_create_share_duplicate_name(app_with_auth, mock_user):
 
 
 @pytest.mark.asyncio
-async def test_create_share_done_folder_requires_tag(app_with_auth, mock_user):
+async def test_create_share_done_folder_requires_tag(app_with_auth, mock_user, mock_session):
     """Create share with done_folder_enabled but no done_tag should return 422."""
     async with AsyncClient(
         transport=ASGITransport(app=app_with_auth), base_url="http://test"
@@ -346,7 +369,7 @@ async def test_create_share_done_folder_requires_tag(app_with_auth, mock_user):
 
 
 @pytest.mark.asyncio
-async def test_create_share_with_done_folder(app_with_auth, mock_user):
+async def test_create_share_with_done_folder(app_with_auth, mock_user, mock_session):
     """Create share with done folder configured."""
     with patch.object(
         shares_module, "get_share_by_name", new_callable=AsyncMock
@@ -396,16 +419,27 @@ async def test_unauthenticated_request(mock_settings):
     """Requests without authentication should return 401."""
     app = create_app()
 
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as client:
-        response = await client.get("/api/shares")
+    # Still need to mock the session to avoid database errors
+    mock_session = MagicMock()
 
-    assert response.status_code == 401
+    async def mock_get_session():
+        yield mock_session
+
+    app.dependency_overrides[shares_module.get_db_session] = mock_get_session
+
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.get("/api/shares")
+
+        assert response.status_code == 401
+    finally:
+        app.dependency_overrides.clear()
 
 
 @pytest.mark.asyncio
-async def test_share_name_validation_start_with_dash(app_with_auth, mock_user):
+async def test_share_name_validation_start_with_dash(app_with_auth, mock_user, mock_session):
     """Share name starting with dash should return 422."""
     async with AsyncClient(
         transport=ASGITransport(app=app_with_auth), base_url="http://test"
@@ -422,7 +456,7 @@ async def test_share_name_validation_start_with_dash(app_with_auth, mock_user):
 
 
 @pytest.mark.asyncio
-async def test_share_name_validation_valid_names(app_with_auth, mock_user):
+async def test_share_name_validation_valid_names(app_with_auth, mock_user, mock_session):
     """Valid share names should be accepted."""
     valid_names = ["a", "A", "1", "abc", "abc-123", "ABC-xyz-123"]
 
