@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from paperless_webdav.api.health import router as health_router
 from paperless_webdav.api.shares import router as shares_router
 from paperless_webdav.api.tags import router as tags_router
-from paperless_webdav.auth import auth_router
+from paperless_webdav.auth import auth_router, oidc_router
 from paperless_webdav.ui import router as ui_router
 from paperless_webdav.config import get_settings
 from paperless_webdav import database
@@ -65,6 +65,7 @@ def create_app() -> FastAPI:
     # Include routers
     app.include_router(health_router)
     app.include_router(auth_router)
+    app.include_router(oidc_router)
     app.include_router(shares_router)
     app.include_router(tags_router)
     app.include_router(ui_router)
