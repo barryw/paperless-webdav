@@ -102,12 +102,28 @@ class PaperlessProvider(DAVProvider):  # type: ignore[misc]
         self._build_filename_index()
 
     def _build_filename_index(self) -> None:
-        """Build index mapping sanitized filenames to documents."""
+        """Build index mapping sanitized filenames to documents.
+
+        When multiple documents would have the same sanitized filename,
+        a warning is logged and the document ID is appended to disambiguate.
+        """
         self._doc_by_filename = {}
         for share_name, documents in self._documents_by_share.items():
             self._doc_by_filename[share_name] = {}
             for doc in documents:
-                filename = f"{sanitize_filename(doc.title)}.pdf"
+                base_name = sanitize_filename(doc.title)
+                filename = f"{base_name}.pdf"
+                if filename in self._doc_by_filename[share_name]:
+                    # Collision detected - append document ID to disambiguate
+                    existing_doc = self._doc_by_filename[share_name][filename]
+                    logger.warning(
+                        "filename_collision",
+                        share=share_name,
+                        filename=filename,
+                        doc_id=doc.id,
+                        existing_doc_id=existing_doc.id,
+                    )
+                    filename = f"{base_name}_{doc.id}.pdf"
                 self._doc_by_filename[share_name][filename] = doc
 
     def _create_client(self, environ: dict[str, Any]) -> PaperlessClient | None:
@@ -276,13 +292,13 @@ class ShareResource(DAVCollection):  # type: ignore[misc]
         """
         return self._share.name
 
-    def _resolve_tag_ids(
-        self, client: PaperlessClient, tag_names: list[str]
+    def _resolve_tag_ids_from_map(
+        self, tag_map: dict[str, int], tag_names: list[str]
     ) -> list[int]:
-        """Resolve tag names to tag IDs.
+        """Resolve tag names to tag IDs using a pre-fetched tag map.
 
         Args:
-            client: PaperlessClient to use for lookups
+            tag_map: Dictionary mapping tag names to tag IDs
             tag_names: List of tag names to resolve
 
         Returns:
@@ -291,16 +307,12 @@ class ShareResource(DAVCollection):  # type: ignore[misc]
         if not tag_names:
             return []
 
-        # Fetch all tags and build a name->id map
-        all_tags = run_async(client.get_tags())
-        tag_map = {tag.name: tag.id for tag in all_tags}
-
         resolved_ids = []
         for name in tag_names:
             if name in tag_map:
                 resolved_ids.append(tag_map[name])
             else:
-                logger.warning("tag_not_found", tag_name=name)
+                logger.warning("tag_not_found", tag_name=name, share=self._share.name)
 
         return resolved_ids
 
@@ -316,12 +328,16 @@ class ShareResource(DAVCollection):  # type: ignore[misc]
         # Check if we can use dynamic loading
         client = self._provider._create_client(self.environ)
         if client is not None:
-            # Resolve tag names to IDs
-            include_tag_ids = self._resolve_tag_ids(
-                client, list(self._share.include_tags)
+            # Fetch all tags once and build name->id map
+            all_tags = run_async(client.get_tags())
+            tag_map = {tag.name: tag.id for tag in all_tags}
+
+            # Resolve tag names to IDs using the shared map
+            include_tag_ids = self._resolve_tag_ids_from_map(
+                tag_map, list(self._share.include_tags)
             )
-            exclude_tag_ids = self._resolve_tag_ids(
-                client, list(self._share.exclude_tags)
+            exclude_tag_ids = self._resolve_tag_ids_from_map(
+                tag_map, list(self._share.exclude_tags)
             )
 
             # Fetch documents with tag filters
@@ -344,15 +360,30 @@ class ShareResource(DAVCollection):  # type: ignore[misc]
     def _get_documents(self) -> list[PaperlessDocument]:
         """Get documents for this share, caching for the request.
 
+        When multiple documents have the same sanitized filename,
+        a warning is logged and the document ID is appended to disambiguate.
+
         Returns:
             List of documents for this share
         """
         if self._loaded_documents is None:
             self._loaded_documents = self._load_documents()
-            # Build filename index
+            # Build filename index with collision detection
             self._doc_by_filename = {}
             for doc in self._loaded_documents:
-                filename = f"{sanitize_filename(doc.title)}.pdf"
+                base_name = sanitize_filename(doc.title)
+                filename = f"{base_name}.pdf"
+                if filename in self._doc_by_filename:
+                    # Collision detected - append document ID to disambiguate
+                    existing_doc = self._doc_by_filename[filename]
+                    logger.warning(
+                        "filename_collision",
+                        share=self._share.name,
+                        filename=filename,
+                        doc_id=doc.id,
+                        existing_doc_id=existing_doc.id,
+                    )
+                    filename = f"{base_name}_{doc.id}.pdf"
                 self._doc_by_filename[filename] = doc
         return self._loaded_documents
 
@@ -374,7 +405,8 @@ class ShareResource(DAVCollection):  # type: ignore[misc]
     def get_member_names(self) -> list[str]:
         """Return list of document filenames in this share.
 
-        Documents are listed as "{sanitized_title}.pdf".
+        Documents are listed as "{sanitized_title}.pdf" or "{sanitized_title}_{id}.pdf"
+        if collision disambiguation was needed.
         If done folder is enabled, it's included in the listing.
 
         Returns:
@@ -386,11 +418,12 @@ class ShareResource(DAVCollection):  # type: ignore[misc]
         if self._share.done_folder_enabled:
             members.append(self._share.done_folder_name)
 
-        # Add documents as {title}.pdf
-        documents = self._get_documents()
-        for doc in documents:
-            filename = f"{sanitize_filename(doc.title)}.pdf"
-            members.append(filename)
+        # Ensure documents are loaded (this builds the filename index)
+        self._get_documents()
+
+        # Add document filenames from the index (includes collision suffixes)
+        if self._doc_by_filename is not None:
+            members.extend(self._doc_by_filename.keys())
 
         return members
 
@@ -536,20 +569,29 @@ class DocumentResource(DAVNonCollection):  # type: ignore[misc]
         """Download document content from Paperless API.
 
         Returns:
-            Document content as bytes
+            Document content as bytes, or empty bytes on error
         """
         if self._content is not None:
             return self._content
 
         client = self._provider._create_client(self.environ)
         if client is not None:
-            self._content = run_async(client.download_document(self.document.id))
-            logger.debug(
-                "downloaded_document_content",
-                document_id=self.document.id,
-                size=len(self._content),
-            )
-            return self._content
+            try:
+                self._content = run_async(client.download_document(self.document.id))
+                logger.debug(
+                    "downloaded_document_content",
+                    document_id=self.document.id,
+                    size=len(self._content),
+                )
+                return self._content
+            except Exception as exc:
+                logger.error(
+                    "download_document_failed",
+                    document_id=self.document.id,
+                    error=str(exc),
+                )
+                self._content = b""
+                return self._content
 
         # No client available - return empty bytes
         logger.warning(
@@ -563,15 +605,19 @@ class DocumentResource(DAVNonCollection):  # type: ignore[misc]
 
         Returns the actual size of the document content. If content has
         been downloaded, returns its length. Otherwise returns -1 to
-        indicate unknown length (wsgidav will use chunked transfer).
+        indicate unknown length.
+
+        Note: Returning -1 before download is intentional behavior.
+        WsgiDAV handles this gracefully by using HTTP chunked transfer
+        encoding, avoiding an extra API call just to get the content size.
 
         Returns:
-            Content length in bytes, or -1 if unknown
+            Content length in bytes, or -1 if unknown (triggers chunked transfer)
         """
         if self._content is not None:
             return len(self._content)
-        # Return -1 to indicate unknown length - wsgidav will handle this
-        # by using chunked transfer encoding
+        # Intentionally return -1 before download - wsgidav will use
+        # chunked transfer encoding, which is acceptable behavior
         return -1
 
     def get_content(self) -> io.BytesIO:

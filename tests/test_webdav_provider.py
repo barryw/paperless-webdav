@@ -895,3 +895,241 @@ class TestBackwardCompatibility:
         assert "Invoice 001.pdf" in member_names
         assert "Receipt 002.pdf" in member_names
         assert "Static Document.pdf" not in member_names
+
+
+# -----------------------------------------------------------------------------
+# Filename Collision Tests
+# -----------------------------------------------------------------------------
+
+
+class TestFilenameCollision:
+    """Tests for filename collision handling."""
+
+    def test_collision_logs_warning_and_disambiguates(
+        self,
+        mock_environ: dict[str, Any],
+        mock_share: MagicMock,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Documents with same sanitized title should be disambiguated."""
+        # Two documents with the same title
+        doc1 = PaperlessDocument(
+            id=1,
+            title="Invoice",
+            original_file_name="invoice1.pdf",
+            created="2025-01-01T00:00:00Z",
+            modified="2025-01-01T00:00:00Z",
+            tags=[],
+        )
+        doc2 = PaperlessDocument(
+            id=2,
+            title="Invoice",
+            original_file_name="invoice2.pdf",
+            created="2025-01-02T00:00:00Z",
+            modified="2025-01-02T00:00:00Z",
+            tags=[],
+        )
+        shares: dict[str, Any] = {"tax2025": mock_share}
+        documents_by_share: dict[str, list[PaperlessDocument]] = {
+            "tax2025": [doc1, doc2]
+        }
+        provider = PaperlessProvider(
+            shares=shares, documents_by_share=documents_by_share
+        )
+
+        share_resource = ShareResource(
+            "/tax2025", mock_environ, provider, mock_share
+        )
+        member_names = share_resource.get_member_names()
+
+        # First document gets original name, second gets disambiguated name
+        assert "Invoice.pdf" in member_names
+        assert "Invoice_2.pdf" in member_names  # doc2.id = 2
+        # Should have logged a warning (structlog logs to stdout)
+        captured = capsys.readouterr()
+        assert "filename_collision" in captured.out
+
+    def test_collision_in_static_mode_also_disambiguates(
+        self,
+        mock_environ: dict[str, Any],
+        mock_share: MagicMock,
+    ) -> None:
+        """Static mode (documents_by_share) should also handle collisions."""
+        # Two documents with the same title
+        doc1 = PaperlessDocument(
+            id=10,
+            title="Report",
+            original_file_name="report1.pdf",
+            created="2025-01-01T00:00:00Z",
+            modified="2025-01-01T00:00:00Z",
+            tags=[],
+        )
+        doc2 = PaperlessDocument(
+            id=20,
+            title="Report",
+            original_file_name="report2.pdf",
+            created="2025-01-02T00:00:00Z",
+            modified="2025-01-02T00:00:00Z",
+            tags=[],
+        )
+        shares: dict[str, Any] = {"tax2025": mock_share}
+        documents_by_share: dict[str, list[PaperlessDocument]] = {
+            "tax2025": [doc1, doc2]
+        }
+
+        provider = PaperlessProvider(
+            shares=shares, documents_by_share=documents_by_share
+        )
+
+        # Provider's static index should have both documents accessible
+        assert "Report.pdf" in provider._doc_by_filename["tax2025"]
+        assert "Report_20.pdf" in provider._doc_by_filename["tax2025"]
+
+    def test_disambiguated_filename_resolves_to_correct_document(
+        self,
+        mock_environ: dict[str, Any],
+        mock_share: MagicMock,
+    ) -> None:
+        """Disambiguated filenames should resolve to the correct document."""
+        doc1 = PaperlessDocument(
+            id=100,
+            title="Contract",
+            original_file_name="contract1.pdf",
+            created="2025-01-01T00:00:00Z",
+            modified="2025-01-01T00:00:00Z",
+            tags=[],
+        )
+        doc2 = PaperlessDocument(
+            id=200,
+            title="Contract",
+            original_file_name="contract2.pdf",
+            created="2025-01-02T00:00:00Z",
+            modified="2025-01-02T00:00:00Z",
+            tags=[],
+        )
+        shares: dict[str, Any] = {"tax2025": mock_share}
+        documents_by_share: dict[str, list[PaperlessDocument]] = {
+            "tax2025": [doc1, doc2]
+        }
+        provider = PaperlessProvider(
+            shares=shares, documents_by_share=documents_by_share
+        )
+
+        # Resolve the disambiguated filename
+        resource = provider.get_resource_inst("/tax2025/Contract_200.pdf", mock_environ)
+
+        assert isinstance(resource, DocumentResource)
+        assert resource.document.id == 200
+
+
+# -----------------------------------------------------------------------------
+# Download Error Handling Tests
+# -----------------------------------------------------------------------------
+
+
+class TestDownloadErrorHandling:
+    """Tests for error handling during document download."""
+
+    def test_download_error_returns_empty_bytes_and_logs(
+        self,
+        mock_environ_with_token: dict[str, Any],
+        mock_share: MagicMock,
+        sample_document: PaperlessDocument,
+        mock_paperless_client: AsyncMock,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Download errors should be caught, logged, and return empty bytes."""
+        mock_paperless_client.download_document.side_effect = Exception(
+            "Connection timeout"
+        )
+
+        shares: dict[str, Any] = {"tax2025": mock_share}
+        provider = PaperlessProvider(
+            shares=shares,
+            paperless_url="http://paperless.local",
+        )
+
+        with patch.object(
+            provider, "_create_client", return_value=mock_paperless_client
+        ):
+            doc_resource = DocumentResource(
+                "/tax2025/Tax Invoice 2025.pdf",
+                mock_environ_with_token,
+                provider,
+                sample_document,
+            )
+            content_stream = doc_resource.get_content()
+
+        # Should return empty bytes
+        assert content_stream.read() == b""
+        # Should have logged an error (structlog logs to stdout)
+        captured = capsys.readouterr()
+        assert "download_document_failed" in captured.out
+
+    def test_download_error_caches_empty_bytes(
+        self,
+        mock_environ_with_token: dict[str, Any],
+        mock_share: MagicMock,
+        sample_document: PaperlessDocument,
+        mock_paperless_client: AsyncMock,
+    ) -> None:
+        """After download error, subsequent calls should return cached empty bytes."""
+        mock_paperless_client.download_document.side_effect = Exception("API error")
+
+        shares: dict[str, Any] = {"tax2025": mock_share}
+        provider = PaperlessProvider(
+            shares=shares,
+            paperless_url="http://paperless.local",
+        )
+
+        with patch.object(
+            provider, "_create_client", return_value=mock_paperless_client
+        ):
+            doc_resource = DocumentResource(
+                "/tax2025/Tax Invoice 2025.pdf",
+                mock_environ_with_token,
+                provider,
+                sample_document,
+            )
+            # First call triggers download error
+            doc_resource.get_content()
+            # Second call should use cached empty bytes
+            content_stream = doc_resource.get_content()
+
+        # Should return empty bytes
+        assert content_stream.read() == b""
+        # Download should only have been attempted once
+        assert mock_paperless_client.download_document.call_count == 1
+
+    def test_content_length_is_zero_after_download_error(
+        self,
+        mock_environ_with_token: dict[str, Any],
+        mock_share: MagicMock,
+        sample_document: PaperlessDocument,
+        mock_paperless_client: AsyncMock,
+    ) -> None:
+        """Content length should be 0 after a download error."""
+        mock_paperless_client.download_document.side_effect = Exception("Network error")
+
+        shares: dict[str, Any] = {"tax2025": mock_share}
+        provider = PaperlessProvider(
+            shares=shares,
+            paperless_url="http://paperless.local",
+        )
+
+        with patch.object(
+            provider, "_create_client", return_value=mock_paperless_client
+        ):
+            doc_resource = DocumentResource(
+                "/tax2025/Tax Invoice 2025.pdf",
+                mock_environ_with_token,
+                provider,
+                sample_document,
+            )
+            # Trigger download error
+            doc_resource.get_content()
+            # Check content length
+            length = doc_resource.get_content_length()
+
+        # Should be 0 (length of empty bytes)
+        assert length == 0
