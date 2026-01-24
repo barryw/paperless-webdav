@@ -474,8 +474,8 @@ class ShareResource(DAVCollection):  # type: ignore[misc]
 class DoneFolderResource(DAVCollection):  # type: ignore[misc]
     """WebDAV collection representing the "done" folder.
 
-    This is a placeholder implementation. When documents are moved here,
-    they will be tagged with the share's done_tag to mark them as processed.
+    Lists documents that have been tagged with the share's done_tag,
+    indicating they have been processed.
     """
 
     def __init__(
@@ -496,6 +496,9 @@ class DoneFolderResource(DAVCollection):  # type: ignore[misc]
         super().__init__(path, environ)
         self._provider = provider
         self._share = share
+        # Cache for dynamically loaded documents
+        self._loaded_documents: list[PaperlessDocument] | None = None
+        self._doc_by_filename: dict[str, PaperlessDocument] | None = None
 
     def get_display_name(self) -> str:
         """Return the done folder name for display.
@@ -505,28 +508,156 @@ class DoneFolderResource(DAVCollection):  # type: ignore[misc]
         """
         return self._share.done_folder_name
 
+    def _resolve_tag_ids_from_map(
+        self, tag_map: dict[str, int], tag_names: list[str]
+    ) -> list[int]:
+        """Resolve tag names to tag IDs using a pre-fetched tag map.
+
+        Args:
+            tag_map: Dictionary mapping tag names to tag IDs
+            tag_names: List of tag names to resolve
+
+        Returns:
+            List of tag IDs for tags that exist
+        """
+        if not tag_names:
+            return []
+
+        resolved_ids = []
+        for name in tag_names:
+            if name in tag_map:
+                resolved_ids.append(tag_map[name])
+            else:
+                logger.warning("tag_not_found", tag_name=name, share=self._share.name)
+
+        return resolved_ids
+
+    def _load_documents(self) -> list[PaperlessDocument]:
+        """Load documents with done_tag from Paperless API.
+
+        Returns:
+            List of documents that have the done_tag
+        """
+        client = self._provider._create_client(self.environ)
+        if client is not None:
+            # Fetch all tags once and build name->id map
+            all_tags = run_async(client.get_tags())
+            tag_map = {tag.name: tag.id for tag in all_tags}
+
+            # Include tags: share's include_tags AND the done_tag
+            # This ensures we only show documents that belong to this share
+            # and are marked as done
+            include_tag_ids = self._resolve_tag_ids_from_map(
+                tag_map, list(self._share.include_tags)
+            )
+
+            # Add done_tag to include list (documents must have this tag)
+            if self._share.done_tag:
+                done_tag_ids = self._resolve_tag_ids_from_map(
+                    tag_map, [self._share.done_tag]
+                )
+                include_tag_ids.extend(done_tag_ids)
+
+            # Exclude tags: share's exclude_tags (but NOT the done_tag)
+            exclude_tag_ids = self._resolve_tag_ids_from_map(
+                tag_map, list(self._share.exclude_tags)
+            )
+
+            # Fetch documents with tag filters
+            documents = run_async(
+                client.get_documents(
+                    include_tag_ids=include_tag_ids,
+                    exclude_tag_ids=exclude_tag_ids,
+                )
+            )
+            logger.debug(
+                "loaded_done_documents",
+                share=self._share.name,
+                count=len(documents),
+            )
+            return documents
+
+        # No client available - return empty list
+        return []
+
+    def _get_documents(self) -> list[PaperlessDocument]:
+        """Get documents for this done folder, caching for the request.
+
+        When multiple documents have the same sanitized filename,
+        a warning is logged and the document ID is appended to disambiguate.
+
+        Returns:
+            List of documents with done_tag
+        """
+        if self._loaded_documents is None:
+            self._loaded_documents = self._load_documents()
+            # Build filename index with collision detection
+            self._doc_by_filename = {}
+            for doc in self._loaded_documents:
+                base_name = sanitize_filename(doc.title)
+                filename = f"{base_name}.pdf"
+                if filename in self._doc_by_filename:
+                    # Collision detected - append document ID to disambiguate
+                    existing_doc = self._doc_by_filename[filename]
+                    logger.warning(
+                        "filename_collision",
+                        share=self._share.name,
+                        folder="done",
+                        filename=filename,
+                        doc_id=doc.id,
+                        existing_doc_id=existing_doc.id,
+                    )
+                    filename = f"{base_name}_{doc.id}.pdf"
+                self._doc_by_filename[filename] = doc
+        return self._loaded_documents
+
+    def _get_doc_by_filename(self, filename: str) -> PaperlessDocument | None:
+        """Get a document by its sanitized filename.
+
+        Args:
+            filename: The sanitized filename (e.g., "Invoice.pdf")
+
+        Returns:
+            PaperlessDocument if found, None otherwise
+        """
+        # Ensure documents are loaded
+        self._get_documents()
+        if self._doc_by_filename is not None:
+            return self._doc_by_filename.get(filename)
+        return None
+
     def get_member_names(self) -> list[str]:
         """Return list of documents in the done folder.
 
-        Currently returns empty list as a placeholder.
-        Will be implemented to list documents tagged with done_tag.
+        Documents are listed as "{sanitized_title}.pdf" or "{sanitized_title}_{id}.pdf"
+        if collision disambiguation was needed.
 
         Returns:
-            Empty list (placeholder implementation)
+            List of document filenames with done_tag
         """
-        # Placeholder - will show documents tagged with done_tag
+        # Ensure documents are loaded (this builds the filename index)
+        self._get_documents()
+
+        # Return document filenames from the index (includes collision suffixes)
+        if self._doc_by_filename is not None:
+            return list(self._doc_by_filename.keys())
+
         return []
 
-    def get_member(self, name: str) -> None:
+    def get_member(self, name: str) -> DocumentResource | None:
         """Get a member by name.
 
         Args:
             name: The filename
 
         Returns:
-            None (placeholder implementation)
+            DocumentResource if found, None otherwise
         """
-        # Placeholder
+        doc = self._get_doc_by_filename(name)
+        if doc is not None:
+            return DocumentResource(
+                f"{self.path}/{name}", self.environ, self._provider, doc
+            )
         return None
 
 

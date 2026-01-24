@@ -525,20 +525,264 @@ class TestDoneFolderResource:
 
         assert done_folder.get_display_name() == "completed"
 
-    def test_get_member_names_returns_empty(
-        self, mock_environ: dict[str, Any], mock_share: MagicMock
+    def test_done_folder_shows_only_done_documents(
+        self,
+        mock_environ_with_token: dict[str, Any],
+        mock_paperless_client: AsyncMock,
     ) -> None:
-        """DoneFolderResource should return empty list (placeholder)."""
-        mock_share.done_folder_name = "done"
-        shares: dict[str, Any] = {"tax2025": mock_share}
-        provider = PaperlessProvider(shares=shares)
+        """Done folder should only show documents with done_tag."""
+        mock_share = MagicMock()
+        mock_share.name = "inbox"
+        mock_share.include_tags = ["inbox"]
+        mock_share.exclude_tags = []
+        mock_share.done_folder_enabled = True
+        mock_share.done_folder_name = "processed"
+        mock_share.done_tag = "processed"
 
-        done_folder = DoneFolderResource(
-            "/tax2025/done", mock_environ, provider, mock_share
+        mock_paperless_client.get_tags.return_value = [
+            PaperlessTag(id=1, name="inbox", slug="inbox"),
+            PaperlessTag(id=2, name="processed", slug="processed"),
+        ]
+        # Only fetch documents with done tag for done folder
+        mock_paperless_client.get_documents.return_value = [
+            PaperlessDocument(
+                id=2,
+                title="Done Doc",
+                original_file_name="done.pdf",
+                created="2025-01-15T10:00:00Z",
+                modified="2025-01-15T10:00:00Z",
+                tags=[1, 2],
+            ),
+        ]
+
+        shares: dict[str, Any] = {"inbox": mock_share}
+        provider = PaperlessProvider(
+            shares=shares,
+            paperless_url="http://paperless.local",
         )
 
-        # Placeholder implementation returns empty
-        assert done_folder.get_member_names() == []
+        with patch.object(
+            provider, "_create_client", return_value=mock_paperless_client
+        ):
+            done_folder = DoneFolderResource(
+                "/inbox/processed", mock_environ_with_token, provider, mock_share
+            )
+            members = done_folder.get_member_names()
+
+        assert "Done Doc.pdf" in members
+
+    def test_done_folder_calls_api_with_done_tag_included(
+        self,
+        mock_environ_with_token: dict[str, Any],
+        mock_paperless_client: AsyncMock,
+    ) -> None:
+        """Done folder should call API with done_tag in include_tag_ids."""
+        mock_share = MagicMock()
+        mock_share.name = "inbox"
+        mock_share.include_tags = ["inbox"]
+        mock_share.exclude_tags = []
+        mock_share.done_folder_enabled = True
+        mock_share.done_folder_name = "done"
+        mock_share.done_tag = "completed"
+
+        mock_paperless_client.get_tags.return_value = [
+            PaperlessTag(id=1, name="inbox", slug="inbox"),
+            PaperlessTag(id=3, name="completed", slug="completed"),
+        ]
+        mock_paperless_client.get_documents.return_value = []
+
+        shares: dict[str, Any] = {"inbox": mock_share}
+        provider = PaperlessProvider(
+            shares=shares,
+            paperless_url="http://paperless.local",
+        )
+
+        with patch.object(
+            provider, "_create_client", return_value=mock_paperless_client
+        ):
+            done_folder = DoneFolderResource(
+                "/inbox/done", mock_environ_with_token, provider, mock_share
+            )
+            done_folder.get_member_names()
+
+        # Should include both inbox tag and completed (done_tag)
+        call_kwargs = mock_paperless_client.get_documents.call_args.kwargs
+        include_ids = call_kwargs.get("include_tag_ids", [])
+        assert 1 in include_ids  # inbox
+        assert 3 in include_ids  # completed (done_tag)
+
+    def test_done_folder_get_member_returns_document_resource(
+        self,
+        mock_environ_with_token: dict[str, Any],
+        mock_paperless_client: AsyncMock,
+    ) -> None:
+        """Done folder get_member should return DocumentResource for valid filename."""
+        mock_share = MagicMock()
+        mock_share.name = "inbox"
+        mock_share.include_tags = ["inbox"]
+        mock_share.exclude_tags = []
+        mock_share.done_folder_enabled = True
+        mock_share.done_folder_name = "processed"
+        mock_share.done_tag = "processed"
+
+        mock_paperless_client.get_tags.return_value = [
+            PaperlessTag(id=1, name="inbox", slug="inbox"),
+            PaperlessTag(id=2, name="processed", slug="processed"),
+        ]
+        mock_paperless_client.get_documents.return_value = [
+            PaperlessDocument(
+                id=42,
+                title="Processed Invoice",
+                original_file_name="invoice.pdf",
+                created="2025-01-15T10:00:00Z",
+                modified="2025-01-15T10:00:00Z",
+                tags=[1, 2],
+            ),
+        ]
+
+        shares: dict[str, Any] = {"inbox": mock_share}
+        provider = PaperlessProvider(
+            shares=shares,
+            paperless_url="http://paperless.local",
+        )
+
+        with patch.object(
+            provider, "_create_client", return_value=mock_paperless_client
+        ):
+            done_folder = DoneFolderResource(
+                "/inbox/processed", mock_environ_with_token, provider, mock_share
+            )
+            member = done_folder.get_member("Processed Invoice.pdf")
+
+        assert isinstance(member, DocumentResource)
+        assert member.document.id == 42
+
+    def test_done_folder_get_member_returns_none_for_unknown(
+        self,
+        mock_environ_with_token: dict[str, Any],
+        mock_paperless_client: AsyncMock,
+    ) -> None:
+        """Done folder get_member should return None for unknown filename."""
+        mock_share = MagicMock()
+        mock_share.name = "inbox"
+        mock_share.include_tags = ["inbox"]
+        mock_share.exclude_tags = []
+        mock_share.done_folder_enabled = True
+        mock_share.done_folder_name = "processed"
+        mock_share.done_tag = "processed"
+
+        mock_paperless_client.get_tags.return_value = [
+            PaperlessTag(id=1, name="inbox", slug="inbox"),
+            PaperlessTag(id=2, name="processed", slug="processed"),
+        ]
+        mock_paperless_client.get_documents.return_value = []
+
+        shares: dict[str, Any] = {"inbox": mock_share}
+        provider = PaperlessProvider(
+            shares=shares,
+            paperless_url="http://paperless.local",
+        )
+
+        with patch.object(
+            provider, "_create_client", return_value=mock_paperless_client
+        ):
+            done_folder = DoneFolderResource(
+                "/inbox/processed", mock_environ_with_token, provider, mock_share
+            )
+            member = done_folder.get_member("nonexistent.pdf")
+
+        assert member is None
+
+    def test_share_resource_get_member_returns_done_folder(
+        self,
+        mock_environ_with_token: dict[str, Any],
+        mock_paperless_client: AsyncMock,
+    ) -> None:
+        """ShareResource.get_member() should return DoneFolderResource for done folder name."""
+        mock_share = MagicMock()
+        mock_share.name = "inbox"
+        mock_share.include_tags = ["inbox"]
+        mock_share.exclude_tags = []
+        mock_share.done_folder_enabled = True
+        mock_share.done_folder_name = "completed"
+        mock_share.done_tag = "processed"
+
+        mock_paperless_client.get_tags.return_value = [
+            PaperlessTag(id=1, name="inbox", slug="inbox"),
+        ]
+        mock_paperless_client.get_documents.return_value = []
+
+        shares: dict[str, Any] = {"inbox": mock_share}
+        provider = PaperlessProvider(
+            shares=shares,
+            paperless_url="http://paperless.local",
+        )
+
+        with patch.object(
+            provider, "_create_client", return_value=mock_paperless_client
+        ):
+            share_resource = ShareResource(
+                "/inbox", mock_environ_with_token, provider, mock_share
+            )
+            member = share_resource.get_member("completed")
+
+        assert isinstance(member, DoneFolderResource)
+
+    def test_done_folder_handles_filename_collisions(
+        self,
+        mock_environ_with_token: dict[str, Any],
+        mock_paperless_client: AsyncMock,
+    ) -> None:
+        """Done folder should handle filename collisions like ShareResource."""
+        mock_share = MagicMock()
+        mock_share.name = "inbox"
+        mock_share.include_tags = ["inbox"]
+        mock_share.exclude_tags = []
+        mock_share.done_folder_enabled = True
+        mock_share.done_folder_name = "done"
+        mock_share.done_tag = "completed"
+
+        mock_paperless_client.get_tags.return_value = [
+            PaperlessTag(id=1, name="inbox", slug="inbox"),
+            PaperlessTag(id=2, name="completed", slug="completed"),
+        ]
+        # Two documents with the same title
+        mock_paperless_client.get_documents.return_value = [
+            PaperlessDocument(
+                id=10,
+                title="Invoice",
+                original_file_name="invoice1.pdf",
+                created="2025-01-15T10:00:00Z",
+                modified="2025-01-15T10:00:00Z",
+                tags=[1, 2],
+            ),
+            PaperlessDocument(
+                id=20,
+                title="Invoice",
+                original_file_name="invoice2.pdf",
+                created="2025-01-15T11:00:00Z",
+                modified="2025-01-15T11:00:00Z",
+                tags=[1, 2],
+            ),
+        ]
+
+        shares: dict[str, Any] = {"inbox": mock_share}
+        provider = PaperlessProvider(
+            shares=shares,
+            paperless_url="http://paperless.local",
+        )
+
+        with patch.object(
+            provider, "_create_client", return_value=mock_paperless_client
+        ):
+            done_folder = DoneFolderResource(
+                "/inbox/done", mock_environ_with_token, provider, mock_share
+            )
+            members = done_folder.get_member_names()
+
+        # Should have both with disambiguation
+        assert "Invoice.pdf" in members
+        assert "Invoice_20.pdf" in members
 
 
 # -----------------------------------------------------------------------------
