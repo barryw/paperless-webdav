@@ -1475,3 +1475,200 @@ async def test_full_share_crud_flow(app_with_db, mock_settings):
         response = await client.get("/ui/shares", follow_redirects=False)
         assert response.status_code == 303
         assert response.headers["location"] == "/ui/login"
+
+
+# --- Token Setup Page Tests ---
+
+
+@pytest.fixture
+def oidc_session_without_token(mock_settings):
+    """Create a session cookie for OIDC user without Paperless token."""
+    serializer = URLSafeTimedSerializer("test-secret-key-for-sessions")
+    # OIDC users may have username but no token initially
+    session_value = serializer.dumps({"username": "oidc-user", "token": ""})
+    return {"session": session_value}
+
+
+@pytest.fixture
+def oidc_session_with_token(mock_settings):
+    """Create a session cookie for OIDC user with Paperless token."""
+    serializer = URLSafeTimedSerializer("test-secret-key-for-sessions")
+    session_value = serializer.dumps({"username": "oidc-user", "token": "valid-paperless-token"})
+    return {"session": session_value}
+
+
+@pytest.mark.asyncio
+async def test_token_setup_page_renders(app_with_db, auth_cookie):
+    """Token setup page should render for authenticated users."""
+    async with AsyncClient(
+        transport=ASGITransport(app=app_with_db), base_url="http://test"
+    ) as client:
+        response = await client.get("/ui/token-setup", cookies=auth_cookie)
+
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    assert "Paperless API Token" in response.text
+
+
+@pytest.mark.asyncio
+async def test_token_setup_page_requires_auth(app_with_db):
+    """Token setup page should redirect to login when not authenticated."""
+    async with AsyncClient(
+        transport=ASGITransport(app=app_with_db), base_url="http://test"
+    ) as client:
+        response = await client.get("/ui/token-setup", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/ui/login"
+
+
+@pytest.mark.asyncio
+async def test_token_setup_page_has_form_and_instructions(app_with_db, auth_cookie):
+    """Token setup page should have token form and instructions."""
+    async with AsyncClient(
+        transport=ASGITransport(app=app_with_db), base_url="http://test"
+    ) as client:
+        response = await client.get("/ui/token-setup", cookies=auth_cookie)
+
+    assert response.status_code == 200
+    # Should have form with token input
+    assert 'name="token"' in response.text
+    # Should have submit button
+    assert 'type="submit"' in response.text
+    # Should have instructions
+    assert "Settings" in response.text or "settings" in response.text
+
+
+@pytest.mark.asyncio
+async def test_token_setup_validates_and_stores_token(app_with_db, auth_cookie, mock_settings):
+    """Token setup should validate token against Paperless and store it."""
+    with patch("paperless_webdav.ui.routes.PaperlessClient") as mock_client_class:
+        mock_client = MagicMock()
+        mock_client.validate_token = AsyncMock(return_value=True)
+        mock_client_class.return_value = mock_client
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app_with_db), base_url="http://test"
+        ) as client:
+            response = await client.post(
+                "/ui/token-setup",
+                data={"token": "valid-paperless-token"},
+                cookies=auth_cookie,
+                follow_redirects=False,
+            )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/ui/shares"
+    # Should have set a new session cookie with the token
+    assert "session" in response.cookies
+
+
+@pytest.mark.asyncio
+async def test_token_setup_shows_error_on_invalid_token(app_with_db, auth_cookie, mock_settings):
+    """Token setup should show error when token validation fails."""
+    with patch("paperless_webdav.ui.routes.PaperlessClient") as mock_client_class:
+        mock_client = MagicMock()
+        mock_client.validate_token = AsyncMock(return_value=False)
+        mock_client_class.return_value = mock_client
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app_with_db), base_url="http://test"
+        ) as client:
+            response = await client.post(
+                "/ui/token-setup",
+                data={"token": "invalid-token"},
+                cookies=auth_cookie,
+                follow_redirects=False,
+            )
+
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    # Should show error message
+    assert "Invalid" in response.text or "invalid" in response.text
+
+
+@pytest.mark.asyncio
+async def test_token_setup_post_requires_auth(app_with_db):
+    """Token setup POST should redirect to login when not authenticated."""
+    async with AsyncClient(
+        transport=ASGITransport(app=app_with_db), base_url="http://test"
+    ) as client:
+        response = await client.post(
+            "/ui/token-setup",
+            data={"token": "some-token"},
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/ui/login"
+
+
+@pytest.mark.asyncio
+async def test_token_setup_updates_session_with_new_token(app_with_db, auth_cookie, mock_settings):
+    """Token setup should update the session cookie with the new token."""
+    with patch("paperless_webdav.ui.routes.PaperlessClient") as mock_client_class:
+        mock_client = MagicMock()
+        mock_client.validate_token = AsyncMock(return_value=True)
+        mock_client_class.return_value = mock_client
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app_with_db), base_url="http://test"
+        ) as client:
+            response = await client.post(
+                "/ui/token-setup",
+                data={"token": "new-valid-token"},
+                cookies=auth_cookie,
+                follow_redirects=False,
+            )
+
+    assert response.status_code == 303
+    # The new session cookie should be set
+    assert "session" in response.cookies
+    # The session should contain the new token (verify by decoding)
+    serializer = URLSafeTimedSerializer("test-secret-key-for-sessions")
+    session_data = serializer.loads(response.cookies["session"])
+    assert session_data["token"] == "new-valid-token"
+    assert session_data["username"] == "testuser"
+
+
+@pytest.mark.asyncio
+async def test_token_setup_handles_connection_error(app_with_db, auth_cookie, mock_settings):
+    """Token setup should show error on connection failure to Paperless."""
+    with patch("paperless_webdav.ui.routes.PaperlessClient") as mock_client_class:
+        mock_client = MagicMock()
+        mock_client.validate_token = AsyncMock(side_effect=Exception("Connection failed"))
+        mock_client_class.return_value = mock_client
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app_with_db), base_url="http://test"
+        ) as client:
+            response = await client.post(
+                "/ui/token-setup",
+                data={"token": "some-token"},
+                cookies=auth_cookie,
+                follow_redirects=False,
+            )
+
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    # Should show error message
+    assert "error" in response.text.lower() or "failed" in response.text.lower()
+
+
+@pytest.mark.asyncio
+async def test_token_setup_shows_error_for_empty_token(app_with_db, auth_cookie, mock_settings):
+    """Token setup should show error when token is empty."""
+    async with AsyncClient(
+        transport=ASGITransport(app=app_with_db), base_url="http://test"
+    ) as client:
+        response = await client.post(
+            "/ui/token-setup",
+            data={"token": ""},
+            cookies=auth_cookie,
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    # Should show error message about empty token
+    assert "required" in response.text.lower() or "enter" in response.text.lower() or "empty" in response.text.lower()

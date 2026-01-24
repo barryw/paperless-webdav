@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Form, Query, Request
+from fastapi import APIRouter, Depends, Form, Query, Request, Response
 from pydantic import ValidationError
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -412,6 +412,83 @@ async def logout(
         max_age=0,
     )
     logger.info("user_logged_out")
+    return response
+
+
+@router.get("/token-setup", response_class=HTMLResponse, response_model=None)
+async def token_setup_page(
+    request: Request,
+    current_user: Annotated[AuthenticatedUser | None, Depends(get_current_user_optional)],
+) -> HTMLResponse | RedirectResponse:
+    """Render the token setup page.
+
+    Requires authentication - redirects to login if not authenticated.
+    This page allows OIDC users to enter their Paperless API token.
+    """
+    if current_user is None:
+        return RedirectResponse(url="/ui/login", status_code=303)
+
+    return templates.TemplateResponse(
+        request=request,
+        name="token_setup.html",
+        context={"error": None},
+    )
+
+
+@router.post("/token-setup", response_model=None)
+async def token_setup_submit(
+    request: Request,
+    token: Annotated[str, Form()] = "",
+    current_user: Annotated[AuthenticatedUser | None, Depends(get_current_user_optional)] = None,
+    settings: Annotated[Settings, Depends(get_settings)] = None,
+) -> HTMLResponse | RedirectResponse:
+    """Handle token setup form submission.
+
+    Validates the provided Paperless API token and updates the session.
+    """
+    if current_user is None:
+        return RedirectResponse(url="/ui/login", status_code=303)
+
+    # Check for empty token
+    if not token or not token.strip():
+        return templates.TemplateResponse(
+            request=request,
+            name="token_setup.html",
+            context={"error": "Please enter your API token"},
+        )
+
+    # Validate the token against Paperless
+    try:
+        client = PaperlessClient(base_url=settings.paperless_url, token=token)
+        is_valid = await client.validate_token()
+    except Exception as e:
+        logger.error("token_validation_error", error=str(e))
+        return templates.TemplateResponse(
+            request=request,
+            name="token_setup.html",
+            context={"error": "Failed to connect to Paperless server"},
+        )
+
+    if not is_valid:
+        return templates.TemplateResponse(
+            request=request,
+            name="token_setup.html",
+            context={"error": "Invalid API token"},
+        )
+
+    # Token is valid - create new session with the token
+    session_value = _create_session(current_user.username, token, settings)
+    response = RedirectResponse(url="/ui/shares", status_code=303)
+    response.set_cookie(
+        key="session",
+        value=session_value,
+        httponly=True,
+        samesite="lax",
+        secure=settings.cookie_secure,
+        max_age=settings.session_expiry_hours * 3600,
+    )
+
+    logger.info("token_setup_success", username=current_user.username)
     return response
 
 
