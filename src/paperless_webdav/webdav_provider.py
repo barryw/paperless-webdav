@@ -1,0 +1,476 @@
+# src/paperless_webdav/webdav_provider.py
+"""WsgiDAV provider for Paperless-ngx documents.
+
+This module implements a WebDAV provider that exposes Paperless documents
+through a virtual filesystem. The hierarchy is:
+
+    /                           - Root (lists all shares)
+    /{sharename}/               - Share (lists documents filtered by tags)
+    /{sharename}/{title}.pdf    - Document (serves PDF content)
+    /{sharename}/done/          - Done folder (for marking documents processed)
+
+The provider bridges file manager clients (e.g., macOS Finder, Windows Explorer)
+with the Paperless-ngx document management system.
+"""
+
+from __future__ import annotations
+
+import re
+from datetime import datetime
+from typing import TYPE_CHECKING, Any
+
+from wsgidav.dav_provider import DAVCollection, DAVNonCollection, DAVProvider  # type: ignore[import-untyped]
+
+from paperless_webdav.logging import get_logger
+from paperless_webdav.paperless_client import PaperlessDocument
+
+if TYPE_CHECKING:
+    from paperless_webdav.models import Share
+
+logger = get_logger(__name__)
+
+
+# Characters that are unsafe for filesystems (Windows, macOS, Linux)
+UNSAFE_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*]')
+
+
+def sanitize_filename(name: str) -> str:
+    """Remove filesystem-unsafe characters from a filename.
+
+    Removes characters that could cause issues on various filesystems:
+    - Path separators: / \\
+    - Windows reserved: < > : " | ? *
+
+    Args:
+        name: The original filename or document title
+
+    Returns:
+        A sanitized filename safe for use on any filesystem.
+        Returns "untitled" if the result would be empty.
+    """
+    # Remove unsafe characters
+    sanitized = UNSAFE_FILENAME_CHARS.sub("", name)
+
+    # Strip whitespace
+    sanitized = sanitized.strip()
+
+    # Return default if empty
+    if not sanitized:
+        return "untitled"
+
+    return sanitized
+
+
+class PaperlessProvider(DAVProvider):  # type: ignore[misc]
+    """WebDAV provider that serves Paperless-ngx documents.
+
+    This provider maps WebDAV paths to Paperless resources:
+    - / returns a RootResource listing all shares
+    - /{share} returns a ShareResource listing documents
+    - /{share}/{doc}.pdf returns a DocumentResource for the PDF
+
+    The provider maintains a reference to available shares and their
+    documents. In production, these are loaded from the database and
+    Paperless API respectively.
+    """
+
+    def __init__(
+        self,
+        shares: dict[str, Share] | None = None,
+        documents_by_share: dict[str, list[PaperlessDocument]] | None = None,
+    ) -> None:
+        """Initialize the provider.
+
+        Args:
+            shares: Dictionary mapping share names to Share objects
+            documents_by_share: Dictionary mapping share names to document lists
+        """
+        super().__init__()
+        self._shares: dict[str, Share] = shares or {}
+        self._documents_by_share: dict[str, list[PaperlessDocument]] = (
+            documents_by_share or {}
+        )
+        # Build filename-to-document mapping for each share
+        self._doc_by_filename: dict[str, dict[str, PaperlessDocument]] = {}
+        self._build_filename_index()
+
+    def _build_filename_index(self) -> None:
+        """Build index mapping sanitized filenames to documents."""
+        self._doc_by_filename = {}
+        for share_name, documents in self._documents_by_share.items():
+            self._doc_by_filename[share_name] = {}
+            for doc in documents:
+                filename = f"{sanitize_filename(doc.title)}.pdf"
+                self._doc_by_filename[share_name][filename] = doc
+
+    def get_resource_inst(
+        self, path: str, environ: dict[str, Any]
+    ) -> RootResource | ShareResource | DocumentResource | DoneFolderResource | None:
+        """Resolve a WebDAV path to the appropriate resource.
+
+        Args:
+            path: The WebDAV request path (e.g., "/share/document.pdf")
+            environ: WSGI environ dictionary
+
+        Returns:
+            The appropriate DAV resource, or None if not found
+        """
+        # Normalize path
+        path = path.rstrip("/")
+        if not path:
+            path = "/"
+
+        parts = [p for p in path.split("/") if p]
+
+        # Root: /
+        if len(parts) == 0:
+            logger.debug("resolve_root", path=path)
+            return RootResource(path, environ, self)
+
+        share_name = parts[0]
+
+        # Check if share exists
+        if share_name not in self._shares:
+            logger.debug("share_not_found", share_name=share_name)
+            return None
+
+        share = self._shares[share_name]
+
+        # Share: /{sharename}
+        if len(parts) == 1:
+            logger.debug("resolve_share", share_name=share_name)
+            return ShareResource(path, environ, self, share)
+
+        resource_name = parts[1]
+
+        # Done folder: /{sharename}/done
+        if resource_name == share.done_folder_name and share.done_folder_enabled:
+            logger.debug("resolve_done_folder", share_name=share_name)
+            return DoneFolderResource(path, environ, self, share)
+
+        # Document: /{sharename}/{filename}.pdf
+        if share_name in self._doc_by_filename:
+            doc = self._doc_by_filename[share_name].get(resource_name)
+            if doc is not None:
+                logger.debug(
+                    "resolve_document",
+                    share_name=share_name,
+                    document_id=doc.id,
+                )
+                return DocumentResource(path, environ, self, doc)
+
+        logger.debug("resource_not_found", path=path)
+        return None
+
+    def get_documents_for_share(self, share_name: str) -> list[PaperlessDocument]:
+        """Get documents for a specific share.
+
+        Args:
+            share_name: Name of the share
+
+        Returns:
+            List of documents in the share
+        """
+        return self._documents_by_share.get(share_name, [])
+
+
+class RootResource(DAVCollection):  # type: ignore[misc]
+    """WebDAV collection representing the root directory.
+
+    Lists all available shares as subdirectories.
+    """
+
+    def __init__(
+        self, path: str, environ: dict[str, Any], provider: PaperlessProvider
+    ) -> None:
+        """Initialize the root resource.
+
+        Args:
+            path: The WebDAV path (should be "/")
+            environ: WSGI environ dictionary
+            provider: The parent PaperlessProvider
+        """
+        super().__init__(path, environ)
+        self._provider = provider
+
+    def get_member_names(self) -> list[str]:
+        """Return list of available share names.
+
+        Returns:
+            List of share names that appear as directories
+        """
+        return list(self._provider._shares.keys())
+
+    def get_member(self, name: str) -> ShareResource | None:
+        """Get a share by name.
+
+        Args:
+            name: The share name
+
+        Returns:
+            ShareResource if found, None otherwise
+        """
+        if name in self._provider._shares:
+            share = self._provider._shares[name]
+            return ShareResource(f"/{name}", self.environ, self._provider, share)
+        return None
+
+
+class ShareResource(DAVCollection):  # type: ignore[misc]
+    """WebDAV collection representing a share directory.
+
+    Lists documents filtered by the share's tag configuration.
+    """
+
+    def __init__(
+        self,
+        path: str,
+        environ: dict[str, Any],
+        provider: PaperlessProvider,
+        share: Share,
+    ) -> None:
+        """Initialize the share resource.
+
+        Args:
+            path: The WebDAV path (e.g., "/sharename")
+            environ: WSGI environ dictionary
+            provider: The parent PaperlessProvider
+            share: The Share configuration object
+        """
+        super().__init__(path, environ)
+        self._provider = provider
+        self._share = share
+
+    def get_display_name(self) -> str:
+        """Return the share name for display.
+
+        Returns:
+            The share's configured name
+        """
+        return self._share.name
+
+    def get_member_names(self) -> list[str]:
+        """Return list of document filenames in this share.
+
+        Documents are listed as "{sanitized_title}.pdf".
+        If done folder is enabled, it's included in the listing.
+
+        Returns:
+            List of member names (documents and optionally done folder)
+        """
+        members: list[str] = []
+
+        # Add done folder if enabled
+        if self._share.done_folder_enabled:
+            members.append(self._share.done_folder_name)
+
+        # Add documents as {title}.pdf
+        documents = self._provider.get_documents_for_share(self._share.name)
+        for doc in documents:
+            filename = f"{sanitize_filename(doc.title)}.pdf"
+            members.append(filename)
+
+        return members
+
+    def get_member(
+        self, name: str
+    ) -> DocumentResource | DoneFolderResource | None:
+        """Get a member resource by name.
+
+        Args:
+            name: The filename or folder name
+
+        Returns:
+            The appropriate resource, or None if not found
+        """
+        # Check for done folder
+        if name == self._share.done_folder_name and self._share.done_folder_enabled:
+            return DoneFolderResource(
+                f"{self.path}/{name}", self.environ, self._provider, self._share
+            )
+
+        # Check for document
+        share_name = self._share.name
+        if share_name in self._provider._doc_by_filename:
+            doc = self._provider._doc_by_filename[share_name].get(name)
+            if doc is not None:
+                return DocumentResource(
+                    f"{self.path}/{name}", self.environ, self._provider, doc
+                )
+
+        return None
+
+
+class DoneFolderResource(DAVCollection):  # type: ignore[misc]
+    """WebDAV collection representing the "done" folder.
+
+    This is a placeholder implementation. When documents are moved here,
+    they will be tagged with the share's done_tag to mark them as processed.
+    """
+
+    def __init__(
+        self,
+        path: str,
+        environ: dict[str, Any],
+        provider: PaperlessProvider,
+        share: Share,
+    ) -> None:
+        """Initialize the done folder resource.
+
+        Args:
+            path: The WebDAV path (e.g., "/sharename/done")
+            environ: WSGI environ dictionary
+            provider: The parent PaperlessProvider
+            share: The Share configuration object
+        """
+        super().__init__(path, environ)
+        self._provider = provider
+        self._share = share
+
+    def get_display_name(self) -> str:
+        """Return the done folder name for display.
+
+        Returns:
+            The share's configured done folder name
+        """
+        return self._share.done_folder_name
+
+    def get_member_names(self) -> list[str]:
+        """Return list of documents in the done folder.
+
+        Currently returns empty list as a placeholder.
+        Will be implemented to list documents tagged with done_tag.
+
+        Returns:
+            Empty list (placeholder implementation)
+        """
+        # Placeholder - will show documents tagged with done_tag
+        return []
+
+    def get_member(self, name: str) -> None:
+        """Get a member by name.
+
+        Args:
+            name: The filename
+
+        Returns:
+            None (placeholder implementation)
+        """
+        # Placeholder
+        return None
+
+
+class DocumentResource(DAVNonCollection):  # type: ignore[misc]
+    """WebDAV resource representing a Paperless document.
+
+    Exposes document metadata (dates, etag) and content as a PDF file.
+    """
+
+    def __init__(
+        self,
+        path: str,
+        environ: dict[str, Any],
+        provider: PaperlessProvider,
+        document: PaperlessDocument,
+    ) -> None:
+        """Initialize the document resource.
+
+        Args:
+            path: The WebDAV path (e.g., "/share/document.pdf")
+            environ: WSGI environ dictionary
+            provider: The parent PaperlessProvider
+            document: The PaperlessDocument metadata
+        """
+        super().__init__(path, environ)
+        self._provider = provider
+        self.document = document
+
+    def get_display_name(self) -> str:
+        """Return the document filename for display.
+
+        Returns:
+            Sanitized document title with .pdf extension
+        """
+        return f"{sanitize_filename(self.document.title)}.pdf"
+
+    def get_content_type(self) -> str:
+        """Return the MIME type for the document.
+
+        Returns:
+            'application/pdf' for all documents
+        """
+        return "application/pdf"
+
+    def get_content_length(self) -> int:
+        """Return the content length.
+
+        Note: This is a placeholder. In production, this will be
+        determined from the actual document content or cached metadata.
+
+        Returns:
+            0 as a placeholder
+        """
+        # Placeholder - actual implementation will fetch from Paperless
+        return 0
+
+    def get_content(self) -> bytes:
+        """Return the document content.
+
+        Note: This is a placeholder. In production, this will fetch
+        the PDF content from the Paperless API.
+
+        Returns:
+            Empty bytes as a placeholder
+        """
+        # Placeholder - actual implementation will download from Paperless
+        return b""
+
+    def get_creation_date(self) -> datetime:
+        """Return the document creation date.
+
+        Returns:
+            The document's created timestamp
+        """
+        return self._parse_iso_datetime(self.document.created)
+
+    def get_last_modified(self) -> datetime:
+        """Return the document modification date.
+
+        Returns:
+            The document's modified timestamp
+        """
+        return self._parse_iso_datetime(self.document.modified)
+
+    def get_etag(self) -> str:
+        """Return an etag for cache validation.
+
+        The etag is based on document ID and modification time,
+        allowing clients to detect when documents have changed.
+
+        Returns:
+            A string etag value
+        """
+        return f'"{self.document.id}-{self.document.modified}"'
+
+    def support_etag(self) -> bool:
+        """Indicate whether this resource supports etags.
+
+        Returns:
+            True, as documents always have etags
+        """
+        return True
+
+    @staticmethod
+    def _parse_iso_datetime(iso_string: str) -> datetime:
+        """Parse an ISO 8601 datetime string.
+
+        Args:
+            iso_string: ISO formatted datetime (e.g., "2025-01-15T10:30:00Z")
+
+        Returns:
+            A datetime object
+        """
+        # Handle both Z suffix and +00:00 formats
+        if iso_string.endswith("Z"):
+            iso_string = iso_string[:-1] + "+00:00"
+        return datetime.fromisoformat(iso_string)
