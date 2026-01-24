@@ -1121,3 +1121,57 @@ async def test_form_displays_error_message(app_with_db, auth_cookie, mock_settin
     assert "text/html" in response.headers["content-type"]
     # Check error message is displayed
     assert "text-red-700" in response.text or "error" in response.text.lower()
+
+
+# --- Delete Share Tests ---
+
+
+@pytest.mark.asyncio
+async def test_delete_share(app_with_db, auth_cookie, mock_settings):
+    """Delete share should remove and return empty response."""
+    with patch(
+        "paperless_webdav.ui.routes.delete_share", new_callable=AsyncMock
+    ) as mock_delete:
+        mock_delete.return_value = True
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app_with_db), base_url="http://test"
+        ) as client:
+            response = await client.delete(
+                "/ui/shares/test-share",
+                cookies=auth_cookie,
+            )
+
+    assert response.status_code == 200
+    assert response.text == ""
+    mock_delete.assert_called_once_with(mock_delete.call_args[0][0], "test-share", "testuser")
+
+
+@pytest.mark.asyncio
+async def test_delete_share_requires_auth(app_with_db):
+    """Delete share should return 404 when not authenticated."""
+    async with AsyncClient(
+        transport=ASGITransport(app=app_with_db), base_url="http://test"
+    ) as client:
+        response = await client.delete("/ui/shares/test-share")
+
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_share_not_found(app_with_db, auth_cookie, mock_settings):
+    """Delete share should return 404 if share not found or not authorized."""
+    with patch(
+        "paperless_webdav.ui.routes.delete_share", new_callable=AsyncMock
+    ) as mock_delete:
+        mock_delete.return_value = False
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app_with_db), base_url="http://test"
+        ) as client:
+            response = await client.delete(
+                "/ui/shares/nonexistent",
+                cookies=auth_cookie,
+            )
+
+    assert response.status_code == 404

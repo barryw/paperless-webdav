@@ -23,6 +23,7 @@ from paperless_webdav.paperless_client import PaperlessClient
 from paperless_webdav.schemas import ShareCreate, ShareUpdate
 from paperless_webdav.services.shares import (
     create_share,
+    delete_share,
     get_share_by_name,
     get_user_shares,
     update_share,
@@ -329,6 +330,30 @@ async def edit_share_page(
         name="shares/form.html",
         context={"share": share, "username": current_user.username},
     )
+
+
+@router.delete("/shares/{name}", response_model=None)
+async def delete_share_handler(
+    name: str,
+    current_user: Annotated[AuthenticatedUser | None, Depends(get_current_user_optional)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> HTMLResponse:
+    """Delete a share via HTMX.
+
+    Requires authentication - returns 404 if not authenticated.
+    Returns empty response on success (HTMX will remove the row).
+    Returns 404 if share not found or not authorized.
+    """
+    if current_user is None:
+        return HTMLResponse(content="", status_code=404)
+
+    deleted = await delete_share(session, name, current_user.username)
+
+    if not deleted:
+        return HTMLResponse(content="", status_code=404)
+
+    logger.info("share_deleted_via_ui", share_name=name, user=current_user.username)
+    return HTMLResponse(content="", status_code=200)
 
 
 @router.get("/partials/tag-suggestions", response_class=HTMLResponse, response_model=None)
