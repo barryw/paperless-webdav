@@ -1499,6 +1499,399 @@ class TestDoneTagFiltering:
 # -----------------------------------------------------------------------------
 
 
+# -----------------------------------------------------------------------------
+# Document Move to Done Folder Tests
+# -----------------------------------------------------------------------------
+
+
+class TestDocumentMoveToDoneFolder:
+    """Tests for moving documents to done folder (adding done_tag)."""
+
+    def test_move_to_done_folder_adds_done_tag(
+        self,
+        mock_environ_with_token: dict[str, Any],
+        mock_paperless_client: AsyncMock,
+    ) -> None:
+        """Moving doc from root to done folder should add done_tag."""
+        mock_share = MagicMock()
+        mock_share.name = "inbox"
+        mock_share.include_tags = ["inbox"]
+        mock_share.exclude_tags = []
+        mock_share.done_folder_enabled = True
+        mock_share.done_folder_name = "done"
+        mock_share.done_tag = "processed"
+
+        mock_doc = PaperlessDocument(
+            id=42,
+            title="Doc",
+            original_file_name="doc.pdf",
+            created="2025-01-15T10:00:00Z",
+            modified="2025-01-15T10:00:00Z",
+            tags=[1],
+        )
+
+        mock_paperless_client.get_tags.return_value = [
+            PaperlessTag(id=1, name="inbox", slug="inbox"),
+            PaperlessTag(id=2, name="processed", slug="processed"),
+        ]
+
+        shares: dict[str, Any] = {"inbox": mock_share}
+        provider = PaperlessProvider(
+            shares=shares,
+            paperless_url="http://paperless.local",
+        )
+
+        with patch.object(
+            provider, "_create_client", return_value=mock_paperless_client
+        ):
+            resource = DocumentResource(
+                "/inbox/Doc.pdf",
+                mock_environ_with_token,
+                provider,
+                mock_doc,
+            )
+            resource._share = mock_share  # Inject share for move logic
+
+            # Simulate MOVE to /inbox/done/Doc.pdf
+            resource.move("/inbox/done/Doc.pdf")
+
+        mock_paperless_client.add_tag_to_document.assert_called_once_with(42, 2)
+
+    def test_move_does_nothing_when_done_folder_disabled(
+        self,
+        mock_environ_with_token: dict[str, Any],
+        mock_paperless_client: AsyncMock,
+    ) -> None:
+        """Move should do nothing when done_folder_enabled is False."""
+        mock_share = MagicMock()
+        mock_share.name = "inbox"
+        mock_share.include_tags = ["inbox"]
+        mock_share.exclude_tags = []
+        mock_share.done_folder_enabled = False  # Disabled
+        mock_share.done_folder_name = "done"
+        mock_share.done_tag = "processed"
+
+        mock_doc = PaperlessDocument(
+            id=42,
+            title="Doc",
+            original_file_name="doc.pdf",
+            created="2025-01-15T10:00:00Z",
+            modified="2025-01-15T10:00:00Z",
+            tags=[1],
+        )
+
+        shares: dict[str, Any] = {"inbox": mock_share}
+        provider = PaperlessProvider(
+            shares=shares,
+            paperless_url="http://paperless.local",
+        )
+
+        with patch.object(
+            provider, "_create_client", return_value=mock_paperless_client
+        ):
+            resource = DocumentResource(
+                "/inbox/Doc.pdf",
+                mock_environ_with_token,
+                provider,
+                mock_doc,
+            )
+            resource._share = mock_share
+
+            # Simulate MOVE to /inbox/done/Doc.pdf
+            resource.move("/inbox/done/Doc.pdf")
+
+        # Should NOT call add_tag_to_document
+        mock_paperless_client.add_tag_to_document.assert_not_called()
+
+    def test_move_does_nothing_when_dest_not_done_folder(
+        self,
+        mock_environ_with_token: dict[str, Any],
+        mock_paperless_client: AsyncMock,
+    ) -> None:
+        """Move should do nothing when destination is not done folder."""
+        mock_share = MagicMock()
+        mock_share.name = "inbox"
+        mock_share.include_tags = ["inbox"]
+        mock_share.exclude_tags = []
+        mock_share.done_folder_enabled = True
+        mock_share.done_folder_name = "done"
+        mock_share.done_tag = "processed"
+
+        mock_doc = PaperlessDocument(
+            id=42,
+            title="Doc",
+            original_file_name="doc.pdf",
+            created="2025-01-15T10:00:00Z",
+            modified="2025-01-15T10:00:00Z",
+            tags=[1],
+        )
+
+        shares: dict[str, Any] = {"inbox": mock_share}
+        provider = PaperlessProvider(
+            shares=shares,
+            paperless_url="http://paperless.local",
+        )
+
+        with patch.object(
+            provider, "_create_client", return_value=mock_paperless_client
+        ):
+            resource = DocumentResource(
+                "/inbox/Doc.pdf",
+                mock_environ_with_token,
+                provider,
+                mock_doc,
+            )
+            resource._share = mock_share
+
+            # Simulate MOVE to /inbox/other_folder/Doc.pdf (not done folder)
+            resource.move("/inbox/other_folder/Doc.pdf")
+
+        # Should NOT call add_tag_to_document
+        mock_paperless_client.add_tag_to_document.assert_not_called()
+
+    def test_move_uses_run_async_to_bridge_async_client(
+        self,
+        mock_environ_with_token: dict[str, Any],
+        mock_paperless_client: AsyncMock,
+    ) -> None:
+        """Move should use run_async to bridge async client calls."""
+        mock_share = MagicMock()
+        mock_share.name = "inbox"
+        mock_share.include_tags = ["inbox"]
+        mock_share.exclude_tags = []
+        mock_share.done_folder_enabled = True
+        mock_share.done_folder_name = "done"
+        mock_share.done_tag = "processed"
+
+        mock_doc = PaperlessDocument(
+            id=42,
+            title="Doc",
+            original_file_name="doc.pdf",
+            created="2025-01-15T10:00:00Z",
+            modified="2025-01-15T10:00:00Z",
+            tags=[1],
+        )
+
+        mock_paperless_client.get_tags.return_value = [
+            PaperlessTag(id=1, name="inbox", slug="inbox"),
+            PaperlessTag(id=2, name="processed", slug="processed"),
+        ]
+
+        shares: dict[str, Any] = {"inbox": mock_share}
+        provider = PaperlessProvider(
+            shares=shares,
+            paperless_url="http://paperless.local",
+        )
+
+        with patch.object(
+            provider, "_create_client", return_value=mock_paperless_client
+        ):
+            with patch(
+                "paperless_webdav.webdav_provider.run_async"
+            ) as mock_run_async:
+                # Configure run_async to return the tags on first call
+                mock_run_async.side_effect = [
+                    [
+                        PaperlessTag(id=1, name="inbox", slug="inbox"),
+                        PaperlessTag(id=2, name="processed", slug="processed"),
+                    ],
+                    None,  # add_tag_to_document returns None
+                ]
+
+                resource = DocumentResource(
+                    "/inbox/Doc.pdf",
+                    mock_environ_with_token,
+                    provider,
+                    mock_doc,
+                )
+                resource._share = mock_share
+
+                resource.move("/inbox/done/Doc.pdf")
+
+                # run_async should be called for both get_tags and add_tag_to_document
+                assert mock_run_async.call_count == 2
+
+    def test_move_handles_missing_done_tag_gracefully(
+        self,
+        mock_environ_with_token: dict[str, Any],
+        mock_paperless_client: AsyncMock,
+    ) -> None:
+        """Move should handle missing done_tag gracefully (no error)."""
+        mock_share = MagicMock()
+        mock_share.name = "inbox"
+        mock_share.include_tags = ["inbox"]
+        mock_share.exclude_tags = []
+        mock_share.done_folder_enabled = True
+        mock_share.done_folder_name = "done"
+        mock_share.done_tag = "nonexistent_tag"  # Tag doesn't exist
+
+        mock_doc = PaperlessDocument(
+            id=42,
+            title="Doc",
+            original_file_name="doc.pdf",
+            created="2025-01-15T10:00:00Z",
+            modified="2025-01-15T10:00:00Z",
+            tags=[1],
+        )
+
+        mock_paperless_client.get_tags.return_value = [
+            PaperlessTag(id=1, name="inbox", slug="inbox"),
+            # Note: "nonexistent_tag" is not here
+        ]
+
+        shares: dict[str, Any] = {"inbox": mock_share}
+        provider = PaperlessProvider(
+            shares=shares,
+            paperless_url="http://paperless.local",
+        )
+
+        with patch.object(
+            provider, "_create_client", return_value=mock_paperless_client
+        ):
+            resource = DocumentResource(
+                "/inbox/Doc.pdf",
+                mock_environ_with_token,
+                provider,
+                mock_doc,
+            )
+            resource._share = mock_share
+
+            # Should not raise, even though tag doesn't exist
+            resource.move("/inbox/done/Doc.pdf")
+
+        # Should NOT call add_tag_to_document since tag wasn't found
+        mock_paperless_client.add_tag_to_document.assert_not_called()
+
+    def test_move_does_nothing_when_no_share_info(
+        self,
+        mock_environ_with_token: dict[str, Any],
+        mock_paperless_client: AsyncMock,
+    ) -> None:
+        """Move should do nothing when _share is not set."""
+        mock_doc = PaperlessDocument(
+            id=42,
+            title="Doc",
+            original_file_name="doc.pdf",
+            created="2025-01-15T10:00:00Z",
+            modified="2025-01-15T10:00:00Z",
+            tags=[1],
+        )
+
+        shares: dict[str, Any] = {}
+        provider = PaperlessProvider(
+            shares=shares,
+            paperless_url="http://paperless.local",
+        )
+
+        with patch.object(
+            provider, "_create_client", return_value=mock_paperless_client
+        ):
+            resource = DocumentResource(
+                "/inbox/Doc.pdf",
+                mock_environ_with_token,
+                provider,
+                mock_doc,
+            )
+            # Note: _share is NOT set
+
+            # Should not raise
+            resource.move("/inbox/done/Doc.pdf")
+
+        # Should NOT call add_tag_to_document
+        mock_paperless_client.add_tag_to_document.assert_not_called()
+
+    def test_share_resource_get_member_passes_share_to_document(
+        self,
+        mock_environ_with_token: dict[str, Any],
+        mock_paperless_client: AsyncMock,
+    ) -> None:
+        """ShareResource.get_member() should pass share to DocumentResource."""
+        mock_share = MagicMock()
+        mock_share.name = "inbox"
+        mock_share.include_tags = ["inbox"]
+        mock_share.exclude_tags = []
+        mock_share.done_folder_enabled = True
+        mock_share.done_folder_name = "done"
+        mock_share.done_tag = "processed"
+
+        mock_paperless_client.get_tags.return_value = [
+            PaperlessTag(id=1, name="inbox", slug="inbox"),
+        ]
+        mock_paperless_client.get_documents.return_value = [
+            PaperlessDocument(
+                id=42,
+                title="Test Doc",
+                original_file_name="test.pdf",
+                created="2025-01-15T10:00:00Z",
+                modified="2025-01-15T10:00:00Z",
+                tags=[1],
+            ),
+        ]
+
+        shares: dict[str, Any] = {"inbox": mock_share}
+        provider = PaperlessProvider(
+            shares=shares,
+            paperless_url="http://paperless.local",
+        )
+
+        with patch.object(
+            provider, "_create_client", return_value=mock_paperless_client
+        ):
+            share_resource = ShareResource(
+                "/inbox", mock_environ_with_token, provider, mock_share
+            )
+            doc_resource = share_resource.get_member("Test Doc.pdf")
+
+        assert doc_resource is not None
+        assert doc_resource._share is mock_share
+
+    def test_done_folder_get_member_passes_share_to_document(
+        self,
+        mock_environ_with_token: dict[str, Any],
+        mock_paperless_client: AsyncMock,
+    ) -> None:
+        """DoneFolderResource.get_member() should pass share to DocumentResource."""
+        mock_share = MagicMock()
+        mock_share.name = "inbox"
+        mock_share.include_tags = ["inbox"]
+        mock_share.exclude_tags = []
+        mock_share.done_folder_enabled = True
+        mock_share.done_folder_name = "done"
+        mock_share.done_tag = "processed"
+
+        mock_paperless_client.get_tags.return_value = [
+            PaperlessTag(id=1, name="inbox", slug="inbox"),
+            PaperlessTag(id=2, name="processed", slug="processed"),
+        ]
+        mock_paperless_client.get_documents.return_value = [
+            PaperlessDocument(
+                id=42,
+                title="Done Doc",
+                original_file_name="done.pdf",
+                created="2025-01-15T10:00:00Z",
+                modified="2025-01-15T10:00:00Z",
+                tags=[1, 2],
+            ),
+        ]
+
+        shares: dict[str, Any] = {"inbox": mock_share}
+        provider = PaperlessProvider(
+            shares=shares,
+            paperless_url="http://paperless.local",
+        )
+
+        with patch.object(
+            provider, "_create_client", return_value=mock_paperless_client
+        ):
+            done_folder = DoneFolderResource(
+                "/inbox/done", mock_environ_with_token, provider, mock_share
+            )
+            doc_resource = done_folder.get_member("Done Doc.pdf")
+
+        assert doc_resource is not None
+        assert doc_resource._share is mock_share
+
+
 class TestDownloadErrorHandling:
     """Tests for error handling during document download."""
 

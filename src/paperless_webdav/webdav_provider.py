@@ -197,7 +197,7 @@ class PaperlessProvider(DAVProvider):  # type: ignore[misc]
                     share_name=share_name,
                     document_id=doc.id,
                 )
-                return DocumentResource(path, environ, self, doc)
+                return DocumentResource(path, environ, self, doc, share=share)
 
         logger.debug("resource_not_found", path=path)
         return None
@@ -456,7 +456,11 @@ class ShareResource(DAVCollection):  # type: ignore[misc]
         doc = self._get_doc_by_filename(name)
         if doc is not None:
             return DocumentResource(
-                f"{self.path}/{name}", self.environ, self._provider, doc
+                f"{self.path}/{name}",
+                self.environ,
+                self._provider,
+                doc,
+                share=self._share,
             )
 
         # Fall back to static index if dynamic didn't find it
@@ -465,7 +469,11 @@ class ShareResource(DAVCollection):  # type: ignore[misc]
             doc = self._provider._doc_by_filename[share_name].get(name)
             if doc is not None:
                 return DocumentResource(
-                    f"{self.path}/{name}", self.environ, self._provider, doc
+                    f"{self.path}/{name}",
+                    self.environ,
+                    self._provider,
+                    doc,
+                    share=self._share,
                 )
 
         return None
@@ -656,7 +664,11 @@ class DoneFolderResource(DAVCollection):  # type: ignore[misc]
         doc = self._get_doc_by_filename(name)
         if doc is not None:
             return DocumentResource(
-                f"{self.path}/{name}", self.environ, self._provider, doc
+                f"{self.path}/{name}",
+                self.environ,
+                self._provider,
+                doc,
+                share=self._share,
             )
         return None
 
@@ -665,6 +677,7 @@ class DocumentResource(DAVNonCollection):  # type: ignore[misc]
     """WebDAV resource representing a Paperless document.
 
     Exposes document metadata (dates, etag) and content as a PDF file.
+    Supports move operations to done folder (adds done_tag).
     """
 
     def __init__(
@@ -673,6 +686,7 @@ class DocumentResource(DAVNonCollection):  # type: ignore[misc]
         environ: dict[str, Any],
         provider: PaperlessProvider,
         document: PaperlessDocument,
+        share: Share | None = None,
     ) -> None:
         """Initialize the document resource.
 
@@ -681,10 +695,12 @@ class DocumentResource(DAVNonCollection):  # type: ignore[misc]
             environ: WSGI environ dictionary
             provider: The parent PaperlessProvider
             document: The PaperlessDocument metadata
+            share: Optional Share configuration (needed for move operations)
         """
         super().__init__(path, environ)
         self._provider = provider
         self.document = document
+        self._share: Share | None = share
         # Cache for downloaded content
         self._content: bytes | None = None
 
@@ -820,3 +836,97 @@ class DocumentResource(DAVNonCollection):  # type: ignore[misc]
         if iso_string.endswith("Z"):
             iso_string = iso_string[:-1] + "+00:00"
         return datetime.fromisoformat(iso_string)
+
+    def _is_move_to_done_folder(self, dest_path: str) -> bool:
+        """Check if the destination path is the done folder.
+
+        Args:
+            dest_path: The destination path (e.g., "/inbox/done/Doc.pdf")
+
+        Returns:
+            True if the destination is inside the done folder
+        """
+        if self._share is None:
+            return False
+        if not self._share.done_folder_enabled:
+            return False
+
+        # Parse destination path: /{share_name}/{done_folder_name}/{filename}
+        parts = [p for p in dest_path.split("/") if p]
+        if len(parts) < 3:
+            return False
+
+        share_name = parts[0]
+        folder_name = parts[1]
+
+        # Check if it's moving to this share's done folder
+        return (
+            share_name == self._share.name
+            and folder_name == self._share.done_folder_name
+        )
+
+    def _get_done_tag_id(self) -> int | None:
+        """Get the done_tag ID by resolving the tag name.
+
+        Returns:
+            Tag ID if found, None otherwise
+        """
+        if self._share is None or not self._share.done_tag:
+            return None
+
+        client = self._provider._create_client(self.environ)
+        if client is None:
+            return None
+
+        # Fetch all tags and find the done_tag
+        all_tags = run_async(client.get_tags())
+        tag_map = {tag.name: tag.id for tag in all_tags}
+
+        return tag_map.get(self._share.done_tag)
+
+    def move(self, dest_path: str) -> bool:
+        """Move the document to a new location.
+
+        When moving to the done folder, this adds the done_tag to the document.
+        The move is virtual - we're just adding a tag, not moving files.
+
+        Args:
+            dest_path: The destination path
+
+        Returns:
+            True if the move was successful
+        """
+        if not self._is_move_to_done_folder(dest_path):
+            logger.debug(
+                "move_not_to_done_folder",
+                document_id=self.document.id,
+                dest_path=dest_path,
+            )
+            return True  # No-op for moves not to done folder
+
+        # Get the done_tag ID
+        done_tag_id = self._get_done_tag_id()
+        if done_tag_id is None:
+            logger.warning(
+                "done_tag_not_found",
+                document_id=self.document.id,
+                done_tag=self._share.done_tag if self._share else None,
+            )
+            return True  # No-op if tag not found
+
+        # Add the done_tag to the document
+        client = self._provider._create_client(self.environ)
+        if client is None:
+            logger.warning(
+                "no_client_for_move",
+                document_id=self.document.id,
+            )
+            return False
+
+        run_async(client.add_tag_to_document(self.document.id, done_tag_id))
+        logger.info(
+            "moved_to_done_folder",
+            document_id=self.document.id,
+            done_tag_id=done_tag_id,
+        )
+        return True
