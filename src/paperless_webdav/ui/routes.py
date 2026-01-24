@@ -39,12 +39,20 @@ templates = Jinja2Templates(directory=str(templates_dir))
 
 
 @router.get("/login", response_class=HTMLResponse)
-async def login_page(request: Request) -> HTMLResponse:
-    """Render the login page."""
+async def login_page(
+    request: Request,
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> HTMLResponse:
+    """Render the login page.
+
+    Shows different UI based on auth_mode:
+    - paperless: username/password form
+    - oidc: SSO button linking to /auth/login
+    """
     return templates.TemplateResponse(
         request=request,
         name="login.html",
-        context={"error": None},
+        context={"error": None, "auth_mode": settings.auth_mode},
     )
 
 

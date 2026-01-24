@@ -46,6 +46,12 @@ def app_with_db(mock_settings, mock_db_session):
     return app
 
 
+@pytest.fixture
+def app_oidc(mock_oidc_settings):
+    """Create test application with OIDC auth mode."""
+    return create_app()
+
+
 @pytest.mark.asyncio
 async def test_login_page_renders(app):
     """Login page should render without authentication."""
@@ -55,6 +61,38 @@ async def test_login_page_renders(app):
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
     assert "Login" in response.text
+
+
+@pytest.mark.asyncio
+async def test_login_page_shows_sso_button_in_oidc_mode(app_oidc):
+    """Login page should show SSO button when auth_mode=oidc."""
+    async with AsyncClient(transport=ASGITransport(app=app_oidc), base_url="http://test") as client:
+        response = await client.get("/ui/login")
+
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    # Should show "Login with SSO" text
+    assert "Login with SSO" in response.text
+    # Should link to /auth/login
+    assert "/auth/login" in response.text
+    # Should NOT show password form
+    assert 'name="password"' not in response.text
+    assert 'name="username"' not in response.text
+
+
+@pytest.mark.asyncio
+async def test_login_page_shows_form_in_paperless_mode(app):
+    """Login page should show form when auth_mode=paperless."""
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/ui/login")
+
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    # Should show password form
+    assert 'name="password"' in response.text
+    assert 'name="username"' in response.text
+    # Should NOT show SSO button
+    assert "Login with SSO" not in response.text
 
 
 @pytest.mark.asyncio

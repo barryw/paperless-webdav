@@ -12,6 +12,18 @@
                 {{ error }}
             </div>
             {% endif %}
+            {% if auth_mode == "oidc" %}
+            <!-- SSO Login Button -->
+            <div class="flex items-center justify-center">
+                <a
+                    href="/auth/login"
+                    class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline w-full text-center"
+                >
+                    Login with SSO
+                </a>
+            </div>
+            {% else %}
+            <!-- Username/Password Form -->
             <form method="post" action="/ui/login">
                 <div class="mb-4">
                     <label class="block text-gray-700 text-sm font-bold mb-2" for="username">
@@ -48,6 +60,7 @@
                     </button>
                 </div>
             </form>
+            {% endif %}
         </div>
         <p class="text-center text-gray-500 text-xs">
             Paperless WebDAV Bridge
