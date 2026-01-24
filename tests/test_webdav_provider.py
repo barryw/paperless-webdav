@@ -1027,6 +1027,234 @@ class TestFilenameCollision:
 # -----------------------------------------------------------------------------
 
 
+# -----------------------------------------------------------------------------
+# Done Tag Filtering Tests
+# -----------------------------------------------------------------------------
+
+
+class TestDoneTagFiltering:
+    """Tests for filtering documents with done_tag from root listing."""
+
+    def test_share_resource_excludes_done_documents_from_root(
+        self,
+        mock_environ_with_token: dict[str, Any],
+        mock_paperless_client: AsyncMock,
+    ) -> None:
+        """Root listing should exclude documents with done_tag."""
+        mock_share = MagicMock()
+        mock_share.name = "inbox"
+        mock_share.include_tags = ["inbox"]
+        mock_share.exclude_tags = []
+        mock_share.done_folder_enabled = True
+        mock_share.done_folder_name = "processed"
+        mock_share.done_tag = "processed"
+
+        # Set up tags including the done_tag
+        mock_paperless_client.get_tags.return_value = [
+            PaperlessTag(id=1, name="inbox", slug="inbox"),
+            PaperlessTag(id=2, name="processed", slug="processed"),
+        ]
+
+        # Return two documents - API should be called with exclude_tag_ids=[2]
+        # Since we're testing the exclude logic, the mock should return only
+        # documents that DON'T have the done_tag (API would filter them)
+        mock_paperless_client.get_documents.return_value = [
+            PaperlessDocument(
+                id=1,
+                title="New Doc",
+                original_file_name="new.pdf",
+                created="2025-01-15T10:00:00Z",
+                modified="2025-01-15T10:00:00Z",
+                tags=[1],
+            ),
+            # Note: Done Doc with tag [1, 2] would be filtered by API
+        ]
+
+        shares: dict[str, Any] = {"inbox": mock_share}
+        provider = PaperlessProvider(
+            shares=shares,
+            paperless_url="http://paperless.local",
+        )
+
+        with patch.object(
+            provider, "_create_client", return_value=mock_paperless_client
+        ):
+            share_resource = ShareResource(
+                "/inbox", mock_environ_with_token, provider, mock_share
+            )
+            members = share_resource.get_member_names()
+
+        # Root should have "New Doc.pdf" and the "processed" folder
+        assert "New Doc.pdf" in members
+        assert "processed" in members  # Done folder still visible
+
+        # Verify that get_documents was called with done_tag ID in exclude_tag_ids
+        mock_paperless_client.get_documents.assert_called_once()
+        call_kwargs = mock_paperless_client.get_documents.call_args.kwargs
+        assert 2 in call_kwargs.get("exclude_tag_ids", [])  # processed tag id=2
+
+    def test_share_resource_adds_done_tag_to_exclude_tags(
+        self,
+        mock_environ_with_token: dict[str, Any],
+        mock_paperless_client: AsyncMock,
+    ) -> None:
+        """Done tag should be added to exclude_tag_ids alongside explicit excludes."""
+        mock_share = MagicMock()
+        mock_share.name = "inbox"
+        mock_share.include_tags = ["inbox"]
+        mock_share.exclude_tags = ["draft"]  # Explicit exclude
+        mock_share.done_folder_enabled = True
+        mock_share.done_folder_name = "done"
+        mock_share.done_tag = "completed"
+
+        mock_paperless_client.get_tags.return_value = [
+            PaperlessTag(id=1, name="inbox", slug="inbox"),
+            PaperlessTag(id=2, name="draft", slug="draft"),
+            PaperlessTag(id=3, name="completed", slug="completed"),
+        ]
+        mock_paperless_client.get_documents.return_value = []
+
+        shares: dict[str, Any] = {"inbox": mock_share}
+        provider = PaperlessProvider(
+            shares=shares,
+            paperless_url="http://paperless.local",
+        )
+
+        with patch.object(
+            provider, "_create_client", return_value=mock_paperless_client
+        ):
+            share_resource = ShareResource(
+                "/inbox", mock_environ_with_token, provider, mock_share
+            )
+            share_resource.get_member_names()
+
+        # Should exclude both draft (explicit) and completed (done_tag)
+        call_kwargs = mock_paperless_client.get_documents.call_args.kwargs
+        exclude_ids = call_kwargs.get("exclude_tag_ids", [])
+        assert 2 in exclude_ids  # draft
+        assert 3 in exclude_ids  # completed (done_tag)
+
+    def test_share_resource_no_done_tag_filtering_when_disabled(
+        self,
+        mock_environ_with_token: dict[str, Any],
+        mock_paperless_client: AsyncMock,
+    ) -> None:
+        """No done_tag filtering when done_folder_enabled is False."""
+        mock_share = MagicMock()
+        mock_share.name = "inbox"
+        mock_share.include_tags = ["inbox"]
+        mock_share.exclude_tags = []
+        mock_share.done_folder_enabled = False  # Disabled
+        mock_share.done_folder_name = "done"
+        mock_share.done_tag = "completed"
+
+        mock_paperless_client.get_tags.return_value = [
+            PaperlessTag(id=1, name="inbox", slug="inbox"),
+            PaperlessTag(id=3, name="completed", slug="completed"),
+        ]
+        mock_paperless_client.get_documents.return_value = []
+
+        shares: dict[str, Any] = {"inbox": mock_share}
+        provider = PaperlessProvider(
+            shares=shares,
+            paperless_url="http://paperless.local",
+        )
+
+        with patch.object(
+            provider, "_create_client", return_value=mock_paperless_client
+        ):
+            share_resource = ShareResource(
+                "/inbox", mock_environ_with_token, provider, mock_share
+            )
+            share_resource.get_member_names()
+
+        # Should NOT exclude completed tag when done_folder is disabled
+        call_kwargs = mock_paperless_client.get_documents.call_args.kwargs
+        exclude_ids = call_kwargs.get("exclude_tag_ids", [])
+        assert 3 not in exclude_ids  # completed should NOT be excluded
+
+    def test_share_resource_no_done_tag_filtering_when_tag_not_set(
+        self,
+        mock_environ_with_token: dict[str, Any],
+        mock_paperless_client: AsyncMock,
+    ) -> None:
+        """No done_tag filtering when done_tag is None."""
+        mock_share = MagicMock()
+        mock_share.name = "inbox"
+        mock_share.include_tags = ["inbox"]
+        mock_share.exclude_tags = []
+        mock_share.done_folder_enabled = True
+        mock_share.done_folder_name = "done"
+        mock_share.done_tag = None  # Not set
+
+        mock_paperless_client.get_tags.return_value = [
+            PaperlessTag(id=1, name="inbox", slug="inbox"),
+        ]
+        mock_paperless_client.get_documents.return_value = []
+
+        shares: dict[str, Any] = {"inbox": mock_share}
+        provider = PaperlessProvider(
+            shares=shares,
+            paperless_url="http://paperless.local",
+        )
+
+        with patch.object(
+            provider, "_create_client", return_value=mock_paperless_client
+        ):
+            share_resource = ShareResource(
+                "/inbox", mock_environ_with_token, provider, mock_share
+            )
+            share_resource.get_member_names()
+
+        # Should have empty exclude_tag_ids since done_tag is None
+        call_kwargs = mock_paperless_client.get_documents.call_args.kwargs
+        exclude_ids = call_kwargs.get("exclude_tag_ids", [])
+        assert exclude_ids == []
+
+    def test_share_resource_handles_missing_done_tag_gracefully(
+        self,
+        mock_environ_with_token: dict[str, Any],
+        mock_paperless_client: AsyncMock,
+    ) -> None:
+        """Should handle gracefully when done_tag doesn't exist in Paperless."""
+        mock_share = MagicMock()
+        mock_share.name = "inbox"
+        mock_share.include_tags = ["inbox"]
+        mock_share.exclude_tags = []
+        mock_share.done_folder_enabled = True
+        mock_share.done_folder_name = "done"
+        mock_share.done_tag = "nonexistent-tag"  # Tag doesn't exist
+
+        mock_paperless_client.get_tags.return_value = [
+            PaperlessTag(id=1, name="inbox", slug="inbox"),
+            # Note: "nonexistent-tag" is not in the list
+        ]
+        mock_paperless_client.get_documents.return_value = []
+
+        shares: dict[str, Any] = {"inbox": mock_share}
+        provider = PaperlessProvider(
+            shares=shares,
+            paperless_url="http://paperless.local",
+        )
+
+        with patch.object(
+            provider, "_create_client", return_value=mock_paperless_client
+        ):
+            share_resource = ShareResource(
+                "/inbox", mock_environ_with_token, provider, mock_share
+            )
+            # Should not raise, even though done_tag doesn't exist
+            share_resource.get_member_names()
+
+        # Should have called get_documents (even if done_tag wasn't found)
+        mock_paperless_client.get_documents.assert_called_once()
+
+
+# -----------------------------------------------------------------------------
+# Download Error Handling Tests
+# -----------------------------------------------------------------------------
+
+
 class TestDownloadErrorHandling:
     """Tests for error handling during document download."""
 

@@ -340,6 +340,14 @@ class ShareResource(DAVCollection):  # type: ignore[misc]
                 tag_map, list(self._share.exclude_tags)
             )
 
+            # When done folder is enabled, exclude documents with done_tag from root
+            # (they should only appear in the done folder, not in the share root)
+            if self._share.done_folder_enabled and self._share.done_tag:
+                done_tag_ids = self._resolve_tag_ids_from_map(
+                    tag_map, [self._share.done_tag]
+                )
+                exclude_tag_ids.extend(done_tag_ids)
+
             # Fetch documents with tag filters
             documents = run_async(
                 client.get_documents(
