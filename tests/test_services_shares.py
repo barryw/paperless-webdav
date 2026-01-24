@@ -516,7 +516,6 @@ class TestStoreUserToken:
         from paperless_webdav.services.shares import store_user_token
 
         # First call: user not found, second call: after creation
-        new_user = User(id=uuid4(), external_id="newuser")
         mock_session.execute.return_value = mock_result_with_value(None)
 
         encryption_key = "MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE="
