@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+
+{% block title %}Token Setup - Paperless WebDAV{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-center min-h-screen">
+    <div class="w-full max-w-md">
+        <div class="bg-white shadow-md rounded-lg px-8 pt-6 pb-8 mb-4">
+            <h1 class="text-2xl font-bold text-center text-gray-800 mb-6">Paperless API Token</h1>
+
+            {% if error %}
+            <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4" role="alert">
+                {{ error }}
+            </div>
+            {% endif %}
+
+            <div class="bg-blue-50 border border-blue-200 text-blue-800 px-4 py-3 rounded mb-6">
+                <p class="text-sm">
+                    <strong>How to get your API token:</strong>
+                </p>
+                <ol class="list-decimal list-inside text-sm mt-2 space-y-1">
+                    <li>Log into your Paperless-ngx instance</li>
+                    <li>Go to Settings (gear icon)</li>
+                    <li>Navigate to "API Token" or "My Profile"</li>
+                    <li>Copy your API token</li>
+                </ol>
+            </div>
+
+            <form method="post" action="/ui/token-setup">
+                <div class="mb-6">
+                    <label class="block text-gray-700 text-sm font-bold mb-2" for="token">
+                        API Token
+                    </label>
+                    <input
+                        class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                        id="token"
+                        name="token"
+                        type="password"
+                        placeholder="Enter your Paperless API token"
+                        required
+                    >
+                </div>
+                <div class="flex items-center justify-center">
+                    <button
+                        class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline w-full"
+                        type="submit"
+                    >
+                        Save Token
+                    </button>
+                </div>
+            </form>
+        </div>
+        <p class="text-center text-gray-500 text-xs">
+            Paperless WebDAV Bridge
+        </p>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,59 @@
+[project]
+name = "paperless-webdav"
+version = "0.1.0"
+description = "WebDAV bridge for Paperless-ngx with tag-based shares"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.109.0",
+    "uvicorn[standard]>=0.27.0",
+    "wsgidav>=4.3.0",
+    "cheroot>=10.0.0",
+    "sqlalchemy[asyncio]>=2.0.25",
+    "asyncpg>=0.29.0",
+    "alembic>=1.13.0",
+    "pydantic>=2.5.0",
+    "pydantic-settings>=2.1.0",
+    "httpx>=0.26.0",
+    "jinja2>=3.1.0",
+    "python-multipart>=0.0.6",
+    "structlog>=24.1.0",
+    "cryptography>=42.0.0",
+    "authlib>=1.3.0",
+    "python-ldap>=3.4.0",
+    "itsdangerous>=2.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=4.1.0",
+    "httpx>=0.26.0",
+    "respx>=0.20.0",
+    "ruff>=0.1.0",
+    "mypy>=1.8.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/paperless_webdav"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "-v --tb=short"
+filterwarnings = [
+    # AsyncMock creates coroutines that may not be awaited during gc cleanup
+    "ignore:coroutine.*was never awaited:RuntimeWarning",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
