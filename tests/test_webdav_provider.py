@@ -2,13 +2,14 @@
 """Tests for the WebDAV provider."""
 
 from datetime import datetime
+from io import BytesIO
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
 
-from paperless_webdav.paperless_client import PaperlessDocument
+from paperless_webdav.paperless_client import PaperlessDocument, PaperlessTag
 from paperless_webdav.webdav_provider import (
     DocumentResource,
     DoneFolderResource,
@@ -538,3 +539,359 @@ class TestDoneFolderResource:
 
         # Placeholder implementation returns empty
         assert done_folder.get_member_names() == []
+
+
+# -----------------------------------------------------------------------------
+# Dynamic Document Loading Tests
+# -----------------------------------------------------------------------------
+
+
+@pytest.fixture
+def mock_paperless_client() -> AsyncMock:
+    """Create a mock PaperlessClient."""
+    client = AsyncMock()
+    # Default tag lookup returns sample tags
+    client.get_tags.return_value = [
+        PaperlessTag(id=1, name="tax", slug="tax"),
+        PaperlessTag(id=2, name="2025", slug="2025"),
+        PaperlessTag(id=3, name="draft", slug="draft"),
+        PaperlessTag(id=4, name="processed", slug="processed"),
+    ]
+    # Default document fetch returns empty list
+    client.get_documents.return_value = []
+    # Default download returns sample PDF bytes
+    client.download_document.return_value = b"%PDF-1.4 sample content"
+    return client
+
+
+@pytest.fixture
+def mock_environ_with_token() -> dict[str, Any]:
+    """Create a mock WSGI environ dict with paperless token."""
+    return {
+        "REQUEST_METHOD": "GET",
+        "PATH_INFO": "/",
+        "wsgidav.provider": None,
+        "paperless.token": "test-api-token-12345",
+    }
+
+
+class TestDynamicDocumentLoading:
+    """Tests for dynamic document loading from Paperless API."""
+
+    def test_provider_requires_paperless_url(self) -> None:
+        """Provider should accept paperless_url for creating clients."""
+        shares: dict[str, Any] = {}
+        provider = PaperlessProvider(
+            shares=shares,
+            paperless_url="http://paperless.local",
+        )
+        assert provider._paperless_url == "http://paperless.local"
+
+    def test_share_resource_loads_documents_from_client(
+        self,
+        mock_environ_with_token: dict[str, Any],
+        mock_share: MagicMock,
+        mock_paperless_client: AsyncMock,
+        sample_documents: list[PaperlessDocument],
+    ) -> None:
+        """ShareResource should load documents via PaperlessClient."""
+        mock_paperless_client.get_documents.return_value = sample_documents
+        shares: dict[str, Any] = {"tax2025": mock_share}
+        provider = PaperlessProvider(
+            shares=shares,
+            paperless_url="http://paperless.local",
+        )
+
+        with patch.object(
+            provider, "_create_client", return_value=mock_paperless_client
+        ):
+            share_resource = ShareResource(
+                "/tax2025", mock_environ_with_token, provider, mock_share
+            )
+            member_names = share_resource.get_member_names()
+
+        # Should have loaded documents from client
+        assert "Invoice 001.pdf" in member_names
+        assert "Receipt 002.pdf" in member_names
+        mock_paperless_client.get_documents.assert_called_once()
+
+    def test_share_resource_resolves_tag_names_to_ids(
+        self,
+        mock_environ_with_token: dict[str, Any],
+        mock_share: MagicMock,
+        mock_paperless_client: AsyncMock,
+    ) -> None:
+        """ShareResource should resolve tag names to IDs for filtering."""
+        # Share config uses tag names: include_tags=["tax", "2025"], exclude_tags=["draft"]
+        mock_share.include_tags = ["tax", "2025"]
+        mock_share.exclude_tags = ["draft"]
+        mock_paperless_client.get_documents.return_value = []
+
+        shares: dict[str, Any] = {"tax2025": mock_share}
+        provider = PaperlessProvider(
+            shares=shares,
+            paperless_url="http://paperless.local",
+        )
+
+        with patch.object(
+            provider, "_create_client", return_value=mock_paperless_client
+        ):
+            share_resource = ShareResource(
+                "/tax2025", mock_environ_with_token, provider, mock_share
+            )
+            share_resource.get_member_names()
+
+        # Should have called get_tags to resolve names to IDs
+        mock_paperless_client.get_tags.assert_called()
+        # Should have called get_documents with resolved tag IDs
+        mock_paperless_client.get_documents.assert_called_once_with(
+            include_tag_ids=[1, 2],  # "tax"=1, "2025"=2
+            exclude_tag_ids=[3],  # "draft"=3
+        )
+
+    def test_share_resource_handles_missing_tags_gracefully(
+        self,
+        mock_environ_with_token: dict[str, Any],
+        mock_share: MagicMock,
+        mock_paperless_client: AsyncMock,
+    ) -> None:
+        """ShareResource should handle nonexistent tag names gracefully."""
+        mock_share.include_tags = ["tax", "nonexistent-tag"]
+        mock_share.exclude_tags = []
+        mock_paperless_client.get_documents.return_value = []
+
+        shares: dict[str, Any] = {"tax2025": mock_share}
+        provider = PaperlessProvider(
+            shares=shares,
+            paperless_url="http://paperless.local",
+        )
+
+        with patch.object(
+            provider, "_create_client", return_value=mock_paperless_client
+        ):
+            share_resource = ShareResource(
+                "/tax2025", mock_environ_with_token, provider, mock_share
+            )
+            # Should not raise, even if tag doesn't exist
+            share_resource.get_member_names()
+
+        # Should only include valid tag IDs (tag "tax"=1 exists)
+        mock_paperless_client.get_documents.assert_called_once()
+        call_args = mock_paperless_client.get_documents.call_args
+        assert 1 in call_args.kwargs.get("include_tag_ids", [])
+
+
+class TestDocumentContentDownload:
+    """Tests for document content download from Paperless API."""
+
+    def test_document_get_content_downloads_from_client(
+        self,
+        mock_environ_with_token: dict[str, Any],
+        mock_share: MagicMock,
+        sample_document: PaperlessDocument,
+        mock_paperless_client: AsyncMock,
+    ) -> None:
+        """DocumentResource.get_content() should download via client."""
+        expected_content = b"%PDF-1.4 actual document content here..."
+        mock_paperless_client.download_document.return_value = expected_content
+
+        shares: dict[str, Any] = {"tax2025": mock_share}
+        provider = PaperlessProvider(
+            shares=shares,
+            paperless_url="http://paperless.local",
+        )
+
+        with patch.object(
+            provider, "_create_client", return_value=mock_paperless_client
+        ):
+            doc_resource = DocumentResource(
+                "/tax2025/Tax Invoice 2025.pdf",
+                mock_environ_with_token,
+                provider,
+                sample_document,
+            )
+            content_stream = doc_resource.get_content()
+
+        # get_content returns a BytesIO stream
+        assert content_stream.read() == expected_content
+        mock_paperless_client.download_document.assert_called_once_with(
+            sample_document.id
+        )
+
+    def test_document_get_content_returns_stream(
+        self,
+        mock_environ_with_token: dict[str, Any],
+        mock_share: MagicMock,
+        sample_document: PaperlessDocument,
+        mock_paperless_client: AsyncMock,
+    ) -> None:
+        """DocumentResource.get_content() should return a file-like object."""
+        expected_content = b"%PDF-1.4 stream content"
+        mock_paperless_client.download_document.return_value = expected_content
+
+        shares: dict[str, Any] = {"tax2025": mock_share}
+        provider = PaperlessProvider(
+            shares=shares,
+            paperless_url="http://paperless.local",
+        )
+
+        with patch.object(
+            provider, "_create_client", return_value=mock_paperless_client
+        ):
+            doc_resource = DocumentResource(
+                "/tax2025/Tax Invoice 2025.pdf",
+                mock_environ_with_token,
+                provider,
+                sample_document,
+            )
+            content = doc_resource.get_content()
+
+        # wsgidav expects a file-like object or bytes
+        # Check it's readable as bytes
+        if isinstance(content, BytesIO):
+            assert content.read() == expected_content
+        else:
+            assert content == expected_content
+
+    def test_document_get_content_length_returns_actual_size(
+        self,
+        mock_environ_with_token: dict[str, Any],
+        mock_share: MagicMock,
+        sample_document: PaperlessDocument,
+        mock_paperless_client: AsyncMock,
+    ) -> None:
+        """DocumentResource.get_content_length() should return actual size."""
+        expected_content = b"%PDF-1.4 content of known size"
+        mock_paperless_client.download_document.return_value = expected_content
+
+        shares: dict[str, Any] = {"tax2025": mock_share}
+        provider = PaperlessProvider(
+            shares=shares,
+            paperless_url="http://paperless.local",
+        )
+
+        with patch.object(
+            provider, "_create_client", return_value=mock_paperless_client
+        ):
+            doc_resource = DocumentResource(
+                "/tax2025/Tax Invoice 2025.pdf",
+                mock_environ_with_token,
+                provider,
+                sample_document,
+            )
+            # First call to get_content to load the document
+            doc_resource.get_content()
+            # Then check length
+            length = doc_resource.get_content_length()
+
+        # Should be the actual size of downloaded content
+        assert length == len(expected_content)
+
+
+class TestClientCreation:
+    """Tests for PaperlessClient creation from environ."""
+
+    def test_provider_creates_client_from_environ_token(
+        self,
+        mock_environ_with_token: dict[str, Any],
+        mock_share: MagicMock,
+    ) -> None:
+        """Provider should create client using token from environ."""
+        shares: dict[str, Any] = {"tax2025": mock_share}
+        provider = PaperlessProvider(
+            shares=shares,
+            paperless_url="http://paperless.local",
+        )
+
+        client = provider._create_client(mock_environ_with_token)
+
+        assert client is not None
+        assert client.base_url == "http://paperless.local"
+        assert client.token == "test-api-token-12345"
+
+    def test_provider_returns_none_without_token(
+        self,
+        mock_environ: dict[str, Any],
+        mock_share: MagicMock,
+    ) -> None:
+        """Provider should return None if no token in environ."""
+        shares: dict[str, Any] = {"tax2025": mock_share}
+        provider = PaperlessProvider(
+            shares=shares,
+            paperless_url="http://paperless.local",
+        )
+
+        # mock_environ doesn't have paperless.token
+        client = provider._create_client(mock_environ)
+
+        assert client is None
+
+
+class TestBackwardCompatibility:
+    """Tests ensuring backward compatibility with static documents_by_share."""
+
+    def test_provider_accepts_static_documents_by_share(
+        self,
+        mock_environ: dict[str, Any],
+        mock_share: MagicMock,
+        sample_documents: list[PaperlessDocument],
+    ) -> None:
+        """Provider should still accept documents_by_share for static mode."""
+        shares: dict[str, Any] = {"tax2025": mock_share}
+        documents_by_share: dict[str, list[PaperlessDocument]] = {
+            "tax2025": sample_documents
+        }
+
+        # Should work without paperless_url
+        provider = PaperlessProvider(
+            shares=shares,
+            documents_by_share=documents_by_share,
+        )
+
+        share_resource = ShareResource(
+            "/tax2025", mock_environ, provider, mock_share
+        )
+        member_names = share_resource.get_member_names()
+
+        assert "Invoice 001.pdf" in member_names
+        assert "Receipt 002.pdf" in member_names
+
+    def test_dynamic_loading_takes_precedence_over_static(
+        self,
+        mock_environ_with_token: dict[str, Any],
+        mock_share: MagicMock,
+        mock_paperless_client: AsyncMock,
+        sample_documents: list[PaperlessDocument],
+    ) -> None:
+        """Dynamic loading should take precedence when client is available."""
+        # Static documents
+        static_doc = PaperlessDocument(
+            id=999,
+            title="Static Document",
+            original_file_name="static.pdf",
+            created="2025-01-01T00:00:00Z",
+            modified="2025-01-01T00:00:00Z",
+            tags=[],
+        )
+        # Dynamic documents from client
+        mock_paperless_client.get_documents.return_value = sample_documents
+
+        shares: dict[str, Any] = {"tax2025": mock_share}
+        provider = PaperlessProvider(
+            shares=shares,
+            documents_by_share={"tax2025": [static_doc]},
+            paperless_url="http://paperless.local",
+        )
+
+        with patch.object(
+            provider, "_create_client", return_value=mock_paperless_client
+        ):
+            share_resource = ShareResource(
+                "/tax2025", mock_environ_with_token, provider, mock_share
+            )
+            member_names = share_resource.get_member_names()
+
+        # Should have dynamic documents, not static
+        assert "Invoice 001.pdf" in member_names
+        assert "Receipt 002.pdf" in member_names
+        assert "Static Document.pdf" not in member_names

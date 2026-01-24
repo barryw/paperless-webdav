@@ -15,14 +15,16 @@ with the Paperless-ngx document management system.
 
 from __future__ import annotations
 
+import io
 import re
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from wsgidav.dav_provider import DAVCollection, DAVNonCollection, DAVProvider  # type: ignore[import-untyped]
 
+from paperless_webdav.async_bridge import run_async
 from paperless_webdav.logging import get_logger
-from paperless_webdav.paperless_client import PaperlessDocument
+from paperless_webdav.paperless_client import PaperlessClient, PaperlessDocument
 
 if TYPE_CHECKING:
     from paperless_webdav.models import Share
@@ -70,27 +72,32 @@ class PaperlessProvider(DAVProvider):  # type: ignore[misc]
     - /{share}/{doc}.pdf returns a DocumentResource for the PDF
 
     The provider maintains a reference to available shares and their
-    documents. In production, these are loaded from the database and
-    Paperless API respectively.
+    documents. In production, documents are fetched dynamically from
+    the Paperless API using the user's token from the WSGI environ.
     """
 
     def __init__(
         self,
         shares: dict[str, Share] | None = None,
         documents_by_share: dict[str, list[PaperlessDocument]] | None = None,
+        paperless_url: str | None = None,
     ) -> None:
         """Initialize the provider.
 
         Args:
             shares: Dictionary mapping share names to Share objects
             documents_by_share: Dictionary mapping share names to document lists
+                (for backward compatibility / static mode)
+            paperless_url: Base URL of the Paperless-ngx instance for dynamic
+                document loading
         """
         super().__init__()
         self._shares: dict[str, Share] = shares or {}
         self._documents_by_share: dict[str, list[PaperlessDocument]] = (
             documents_by_share or {}
         )
-        # Build filename-to-document mapping for each share
+        self._paperless_url: str | None = paperless_url
+        # Build filename-to-document mapping for each share (static mode)
         self._doc_by_filename: dict[str, dict[str, PaperlessDocument]] = {}
         self._build_filename_index()
 
@@ -102,6 +109,23 @@ class PaperlessProvider(DAVProvider):  # type: ignore[misc]
             for doc in documents:
                 filename = f"{sanitize_filename(doc.title)}.pdf"
                 self._doc_by_filename[share_name][filename] = doc
+
+    def _create_client(self, environ: dict[str, Any]) -> PaperlessClient | None:
+        """Create a PaperlessClient from WSGI environ.
+
+        The token is expected to be stored in environ["paperless.token"] by
+        the authentication middleware.
+
+        Args:
+            environ: WSGI environ dictionary
+
+        Returns:
+            PaperlessClient if token is available, None otherwise
+        """
+        token = environ.get("paperless.token")
+        if not token or not self._paperless_url:
+            return None
+        return PaperlessClient(self._paperless_url, token)
 
     def get_resource_inst(
         self, path: str, environ: dict[str, Any]
@@ -240,6 +264,9 @@ class ShareResource(DAVCollection):  # type: ignore[misc]
         super().__init__(path, environ)
         self._provider = provider
         self._share = share
+        # Cache for dynamically loaded documents
+        self._loaded_documents: list[PaperlessDocument] | None = None
+        self._doc_by_filename: dict[str, PaperlessDocument] | None = None
 
     def get_display_name(self) -> str:
         """Return the share name for display.
@@ -248,6 +275,101 @@ class ShareResource(DAVCollection):  # type: ignore[misc]
             The share's configured name
         """
         return self._share.name
+
+    def _resolve_tag_ids(
+        self, client: PaperlessClient, tag_names: list[str]
+    ) -> list[int]:
+        """Resolve tag names to tag IDs.
+
+        Args:
+            client: PaperlessClient to use for lookups
+            tag_names: List of tag names to resolve
+
+        Returns:
+            List of tag IDs for tags that exist
+        """
+        if not tag_names:
+            return []
+
+        # Fetch all tags and build a name->id map
+        all_tags = run_async(client.get_tags())
+        tag_map = {tag.name: tag.id for tag in all_tags}
+
+        resolved_ids = []
+        for name in tag_names:
+            if name in tag_map:
+                resolved_ids.append(tag_map[name])
+            else:
+                logger.warning("tag_not_found", tag_name=name)
+
+        return resolved_ids
+
+    def _load_documents(self) -> list[PaperlessDocument]:
+        """Load documents from Paperless API or static cache.
+
+        Attempts dynamic loading if a client can be created. Falls back
+        to static documents_by_share if no client is available.
+
+        Returns:
+            List of documents for this share
+        """
+        # Check if we can use dynamic loading
+        client = self._provider._create_client(self.environ)
+        if client is not None:
+            # Resolve tag names to IDs
+            include_tag_ids = self._resolve_tag_ids(
+                client, list(self._share.include_tags)
+            )
+            exclude_tag_ids = self._resolve_tag_ids(
+                client, list(self._share.exclude_tags)
+            )
+
+            # Fetch documents with tag filters
+            documents = run_async(
+                client.get_documents(
+                    include_tag_ids=include_tag_ids,
+                    exclude_tag_ids=exclude_tag_ids,
+                )
+            )
+            logger.debug(
+                "loaded_documents_dynamically",
+                share=self._share.name,
+                count=len(documents),
+            )
+            return documents
+
+        # Fall back to static mode
+        return self._provider.get_documents_for_share(self._share.name)
+
+    def _get_documents(self) -> list[PaperlessDocument]:
+        """Get documents for this share, caching for the request.
+
+        Returns:
+            List of documents for this share
+        """
+        if self._loaded_documents is None:
+            self._loaded_documents = self._load_documents()
+            # Build filename index
+            self._doc_by_filename = {}
+            for doc in self._loaded_documents:
+                filename = f"{sanitize_filename(doc.title)}.pdf"
+                self._doc_by_filename[filename] = doc
+        return self._loaded_documents
+
+    def _get_doc_by_filename(self, filename: str) -> PaperlessDocument | None:
+        """Get a document by its sanitized filename.
+
+        Args:
+            filename: The sanitized filename (e.g., "Invoice.pdf")
+
+        Returns:
+            PaperlessDocument if found, None otherwise
+        """
+        # Ensure documents are loaded
+        self._get_documents()
+        if self._doc_by_filename is not None:
+            return self._doc_by_filename.get(filename)
+        return None
 
     def get_member_names(self) -> list[str]:
         """Return list of document filenames in this share.
@@ -265,7 +387,7 @@ class ShareResource(DAVCollection):  # type: ignore[misc]
             members.append(self._share.done_folder_name)
 
         # Add documents as {title}.pdf
-        documents = self._provider.get_documents_for_share(self._share.name)
+        documents = self._get_documents()
         for doc in documents:
             filename = f"{sanitize_filename(doc.title)}.pdf"
             members.append(filename)
@@ -289,7 +411,14 @@ class ShareResource(DAVCollection):  # type: ignore[misc]
                 f"{self.path}/{name}", self.environ, self._provider, self._share
             )
 
-        # Check for document
+        # Check for document - try dynamic first, then static
+        doc = self._get_doc_by_filename(name)
+        if doc is not None:
+            return DocumentResource(
+                f"{self.path}/{name}", self.environ, self._provider, doc
+            )
+
+        # Fall back to static index if dynamic didn't find it
         share_name = self._share.name
         if share_name in self._provider._doc_by_filename:
             doc = self._provider._doc_by_filename[share_name].get(name)
@@ -384,6 +513,8 @@ class DocumentResource(DAVNonCollection):  # type: ignore[misc]
         super().__init__(path, environ)
         self._provider = provider
         self.document = document
+        # Cache for downloaded content
+        self._content: bytes | None = None
 
     def get_display_name(self) -> str:
         """Return the document filename for display.
@@ -401,29 +532,59 @@ class DocumentResource(DAVNonCollection):  # type: ignore[misc]
         """
         return "application/pdf"
 
+    def _download_content(self) -> bytes:
+        """Download document content from Paperless API.
+
+        Returns:
+            Document content as bytes
+        """
+        if self._content is not None:
+            return self._content
+
+        client = self._provider._create_client(self.environ)
+        if client is not None:
+            self._content = run_async(client.download_document(self.document.id))
+            logger.debug(
+                "downloaded_document_content",
+                document_id=self.document.id,
+                size=len(self._content),
+            )
+            return self._content
+
+        # No client available - return empty bytes
+        logger.warning(
+            "no_client_for_download",
+            document_id=self.document.id,
+        )
+        return b""
+
     def get_content_length(self) -> int:
         """Return the content length.
 
-        Note: This is a placeholder. In production, this will be
-        determined from the actual document content or cached metadata.
+        Returns the actual size of the document content. If content has
+        been downloaded, returns its length. Otherwise returns -1 to
+        indicate unknown length (wsgidav will use chunked transfer).
 
         Returns:
-            0 as a placeholder
+            Content length in bytes, or -1 if unknown
         """
-        # Placeholder - actual implementation will fetch from Paperless
-        return 0
+        if self._content is not None:
+            return len(self._content)
+        # Return -1 to indicate unknown length - wsgidav will handle this
+        # by using chunked transfer encoding
+        return -1
 
-    def get_content(self) -> bytes:
-        """Return the document content.
+    def get_content(self) -> io.BytesIO:
+        """Return the document content as a file-like object.
 
-        Note: This is a placeholder. In production, this will fetch
-        the PDF content from the Paperless API.
+        Downloads the document content from Paperless API and returns
+        it as a BytesIO stream.
 
         Returns:
-            Empty bytes as a placeholder
+            File-like object containing document content
         """
-        # Placeholder - actual implementation will download from Paperless
-        return b""
+        content = self._download_content()
+        return io.BytesIO(content)
 
     def get_creation_date(self) -> datetime:
         """Return the document creation date.
