@@ -1,0 +1,30 @@
+when:
+  - event: [push, pull_request, manual]
+
+steps:
+  - name: lint
+    image: python:3.12-slim
+    commands:
+      - pip install uv
+      - uv sync --frozen
+      - uv run ruff check src/ tests/
+      - uv run ruff format --check src/ tests/
+
+  - name: typecheck
+    image: python:3.12-slim
+    commands:
+      - pip install uv
+      - uv sync --frozen
+      - uv run mypy src/
+
+  - name: test
+    image: python:3.12-slim
+    environment:
+      PAPERLESS_URL: http://paperless.test
+      DATABASE_URL: postgresql://test:test@localhost/test
+      ENCRYPTION_KEY: dGVzdGtleXRoYXRpczMyYnl0ZXNsb25nIQ==
+      SECRET_KEY: test-secret-key-for-sessions
+    commands:
+      - pip install uv
+      - uv sync --frozen
+      - uv run pytest --tb=short -q
