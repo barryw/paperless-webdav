@@ -922,6 +922,73 @@ class DocumentResource(DAVNonCollection):  # type: ignore[misc]
 
         return tag_map.get(self._share.done_tag)
 
+    def _validate_move_destination(self, dest_path: str) -> None:
+        """Validate that the move destination is allowed.
+
+        Only these MOVE operations are allowed:
+        - Root -> Done folder (within same share)
+        - Done folder -> Root (within same share)
+        - Same location moves (no-op, effectively a rename)
+
+        Args:
+            dest_path: The destination path
+
+        Raises:
+            DAVError: HTTP 403 Forbidden if the move is not allowed
+        """
+        # Import here to avoid circular import issues with wsgidav
+        from wsgidav.dav_error import DAVError, HTTP_FORBIDDEN  # type: ignore[import-untyped]
+
+        parts = [p for p in dest_path.split("/") if p]
+
+        # Path must have 2 parts (share/file) or 3 parts (share/done/file)
+        if len(parts) < 2 or len(parts) > 3:
+            logger.warning(
+                "move_invalid_path_structure",
+                document_id=self.document.id,
+                dest_path=dest_path,
+                parts_count=len(parts),
+            )
+            raise DAVError(
+                HTTP_FORBIDDEN,
+                f"Move not allowed: invalid path structure '{dest_path}'",
+            )
+
+        dest_share_name = parts[0]
+
+        # If we have share info, validate share matches
+        if self._share is not None:
+            if dest_share_name != self._share.name:
+                logger.warning(
+                    "move_cross_share_rejected",
+                    document_id=self.document.id,
+                    source_share=self._share.name,
+                    dest_share=dest_share_name,
+                    dest_path=dest_path,
+                )
+                raise DAVError(
+                    HTTP_FORBIDDEN,
+                    f"Move not allowed: cross-share moves not supported "
+                    f"(from '{self._share.name}' to '{dest_share_name}')",
+                )
+
+            # If 3 parts, middle part must be the done folder
+            if len(parts) == 3:
+                folder_name = parts[1]
+                if folder_name != self._share.done_folder_name:
+                    logger.warning(
+                        "move_invalid_subfolder",
+                        document_id=self.document.id,
+                        dest_path=dest_path,
+                        folder_name=folder_name,
+                        expected_done_folder=self._share.done_folder_name,
+                    )
+                    raise DAVError(
+                        HTTP_FORBIDDEN,
+                        f"Move not allowed: subdirectory moves not supported "
+                        f"('{folder_name}' is not the done folder)",
+                    )
+
     def move(self, dest_path: str) -> bool:
         """Move the document to a new location.
 
@@ -929,12 +996,23 @@ class DocumentResource(DAVNonCollection):  # type: ignore[misc]
         When moving from done folder to root, this removes the done_tag.
         The move is virtual - we're just adding/removing a tag, not moving files.
 
+        Only these MOVE operations are allowed:
+        - Root -> Done folder (within same share)
+        - Done folder -> Root (within same share)
+        - Same location moves (no-op)
+
         Args:
             dest_path: The destination path
 
         Returns:
             True if the move was successful
+
+        Raises:
+            DAVError: HTTP 403 Forbidden if the move is not allowed
         """
+        # Validate the move destination first
+        self._validate_move_destination(dest_path)
+
         # Handle move TO done folder (add tag)
         if self._is_move_to_done_folder(dest_path):
             return self._handle_move_to_done_folder()

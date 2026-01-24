@@ -1603,12 +1603,14 @@ class TestDocumentMoveToDoneFolder:
         # Should NOT call add_tag_to_document
         mock_paperless_client.add_tag_to_document.assert_not_called()
 
-    def test_move_does_nothing_when_dest_not_done_folder(
+    def test_move_rejects_non_done_folder_subdirectory(
         self,
         mock_environ_with_token: dict[str, Any],
         mock_paperless_client: AsyncMock,
     ) -> None:
-        """Move should do nothing when destination is not done folder."""
+        """Move to subdirectory that isn't done folder should be rejected."""
+        from wsgidav.dav_error import DAVError
+
         mock_share = MagicMock()
         mock_share.name = "inbox"
         mock_share.include_tags = ["inbox"]
@@ -1644,7 +1646,11 @@ class TestDocumentMoveToDoneFolder:
             resource._share = mock_share
 
             # Simulate MOVE to /inbox/other_folder/Doc.pdf (not done folder)
-            resource.move("/inbox/other_folder/Doc.pdf")
+            # This should be rejected with 403 Forbidden
+            with pytest.raises(DAVError) as exc:
+                resource.move("/inbox/other_folder/Doc.pdf")
+
+            assert exc.value.value == 403
 
         # Should NOT call add_tag_to_document
         mock_paperless_client.add_tag_to_document.assert_not_called()
@@ -2310,3 +2316,441 @@ class TestDownloadErrorHandling:
 
         # Should be 0 (length of empty bytes)
         assert length == 0
+
+
+# -----------------------------------------------------------------------------
+# MOVE Validation Tests
+# -----------------------------------------------------------------------------
+
+
+class TestMoveValidation:
+    """Tests for MOVE operation validation (rejecting invalid moves)."""
+
+    def test_move_rejects_cross_share_moves(
+        self,
+        mock_environ_with_token: dict[str, Any],
+        mock_paperless_client: AsyncMock,
+    ) -> None:
+        """MOVE between different shares should be rejected with 403."""
+        from wsgidav.dav_error import DAVError
+
+        mock_share = MagicMock()
+        mock_share.name = "share1"
+        mock_share.include_tags = ["inbox"]
+        mock_share.exclude_tags = []
+        mock_share.done_folder_enabled = True
+        mock_share.done_folder_name = "done"
+        mock_share.done_tag = "processed"
+
+        mock_doc = PaperlessDocument(
+            id=42,
+            title="Doc",
+            original_file_name="doc.pdf",
+            created="2025-01-15T10:00:00Z",
+            modified="2025-01-15T10:00:00Z",
+            tags=[1],
+        )
+
+        shares: dict[str, Any] = {"share1": mock_share}
+        provider = PaperlessProvider(
+            shares=shares,
+            paperless_url="http://paperless.local",
+        )
+
+        with patch.object(
+            provider, "_create_client", return_value=mock_paperless_client
+        ):
+            resource = DocumentResource(
+                "/share1/Doc.pdf",
+                mock_environ_with_token,
+                provider,
+                mock_doc,
+                share=mock_share,
+            )
+
+            # Attempt MOVE to different share - should be rejected
+            with pytest.raises(DAVError) as exc:
+                resource.move("/share2/Doc.pdf")
+
+            assert exc.value.value == 403  # HTTP_FORBIDDEN
+
+    def test_move_rejects_invalid_destinations(
+        self,
+        mock_environ_with_token: dict[str, Any],
+        mock_paperless_client: AsyncMock,
+    ) -> None:
+        """MOVE to invalid paths (subdirectories) should be rejected."""
+        from wsgidav.dav_error import DAVError
+
+        mock_share = MagicMock()
+        mock_share.name = "inbox"
+        mock_share.include_tags = ["inbox"]
+        mock_share.exclude_tags = []
+        mock_share.done_folder_enabled = True
+        mock_share.done_folder_name = "done"
+        mock_share.done_tag = "processed"
+
+        mock_doc = PaperlessDocument(
+            id=42,
+            title="Doc",
+            original_file_name="doc.pdf",
+            created="2025-01-15T10:00:00Z",
+            modified="2025-01-15T10:00:00Z",
+            tags=[1],
+        )
+
+        shares: dict[str, Any] = {"inbox": mock_share}
+        provider = PaperlessProvider(
+            shares=shares,
+            paperless_url="http://paperless.local",
+        )
+
+        with patch.object(
+            provider, "_create_client", return_value=mock_paperless_client
+        ):
+            resource = DocumentResource(
+                "/inbox/Doc.pdf",
+                mock_environ_with_token,
+                provider,
+                mock_doc,
+                share=mock_share,
+            )
+
+            # Attempt MOVE to subdirectory - should be rejected
+            with pytest.raises(DAVError) as exc:
+                resource.move("/inbox/subdir/Doc.pdf")
+
+            assert exc.value.value == 403
+
+    def test_move_rejects_completely_different_path_structure(
+        self,
+        mock_environ_with_token: dict[str, Any],
+        mock_paperless_client: AsyncMock,
+    ) -> None:
+        """MOVE to completely different path structure should be rejected."""
+        from wsgidav.dav_error import DAVError
+
+        mock_share = MagicMock()
+        mock_share.name = "inbox"
+        mock_share.include_tags = ["inbox"]
+        mock_share.exclude_tags = []
+        mock_share.done_folder_enabled = True
+        mock_share.done_folder_name = "done"
+        mock_share.done_tag = "processed"
+
+        mock_doc = PaperlessDocument(
+            id=42,
+            title="Doc",
+            original_file_name="doc.pdf",
+            created="2025-01-15T10:00:00Z",
+            modified="2025-01-15T10:00:00Z",
+            tags=[1],
+        )
+
+        shares: dict[str, Any] = {"inbox": mock_share}
+        provider = PaperlessProvider(
+            shares=shares,
+            paperless_url="http://paperless.local",
+        )
+
+        with patch.object(
+            provider, "_create_client", return_value=mock_paperless_client
+        ):
+            resource = DocumentResource(
+                "/inbox/Doc.pdf",
+                mock_environ_with_token,
+                provider,
+                mock_doc,
+                share=mock_share,
+            )
+
+            # Attempt MOVE to deep nested path - should be rejected
+            with pytest.raises(DAVError) as exc:
+                resource.move("/inbox/foo/bar/baz/Doc.pdf")
+
+            assert exc.value.value == 403
+
+    def test_move_rejects_path_with_only_one_part(
+        self,
+        mock_environ_with_token: dict[str, Any],
+        mock_paperless_client: AsyncMock,
+    ) -> None:
+        """MOVE to path with only share name (no filename) should be rejected."""
+        from wsgidav.dav_error import DAVError
+
+        mock_share = MagicMock()
+        mock_share.name = "inbox"
+        mock_share.include_tags = ["inbox"]
+        mock_share.exclude_tags = []
+        mock_share.done_folder_enabled = True
+        mock_share.done_folder_name = "done"
+        mock_share.done_tag = "processed"
+
+        mock_doc = PaperlessDocument(
+            id=42,
+            title="Doc",
+            original_file_name="doc.pdf",
+            created="2025-01-15T10:00:00Z",
+            modified="2025-01-15T10:00:00Z",
+            tags=[1],
+        )
+
+        shares: dict[str, Any] = {"inbox": mock_share}
+        provider = PaperlessProvider(
+            shares=shares,
+            paperless_url="http://paperless.local",
+        )
+
+        with patch.object(
+            provider, "_create_client", return_value=mock_paperless_client
+        ):
+            resource = DocumentResource(
+                "/inbox/Doc.pdf",
+                mock_environ_with_token,
+                provider,
+                mock_doc,
+                share=mock_share,
+            )
+
+            # Attempt MOVE to just share path - should be rejected
+            with pytest.raises(DAVError) as exc:
+                resource.move("/inbox")
+
+            assert exc.value.value == 403
+
+    def test_move_without_share_info_validates_path_structure(
+        self,
+        mock_environ_with_token: dict[str, Any],
+        mock_paperless_client: AsyncMock,
+    ) -> None:
+        """MOVE without share info should still validate path structure."""
+        from wsgidav.dav_error import DAVError
+
+        mock_doc = PaperlessDocument(
+            id=42,
+            title="Doc",
+            original_file_name="doc.pdf",
+            created="2025-01-15T10:00:00Z",
+            modified="2025-01-15T10:00:00Z",
+            tags=[1],
+        )
+
+        shares: dict[str, Any] = {}
+        provider = PaperlessProvider(
+            shares=shares,
+            paperless_url="http://paperless.local",
+        )
+
+        with patch.object(
+            provider, "_create_client", return_value=mock_paperless_client
+        ):
+            resource = DocumentResource(
+                "/inbox/Doc.pdf",
+                mock_environ_with_token,
+                provider,
+                mock_doc,
+                # Note: no share set
+            )
+
+            # Attempt MOVE to invalid nested path - should be rejected
+            with pytest.raises(DAVError) as exc:
+                resource.move("/inbox/deeply/nested/path/Doc.pdf")
+
+            assert exc.value.value == 403
+
+    def test_move_allows_valid_root_to_done_folder(
+        self,
+        mock_environ_with_token: dict[str, Any],
+        mock_paperless_client: AsyncMock,
+    ) -> None:
+        """MOVE from root to done folder should be allowed (valid move)."""
+        mock_share = MagicMock()
+        mock_share.name = "inbox"
+        mock_share.include_tags = ["inbox"]
+        mock_share.exclude_tags = []
+        mock_share.done_folder_enabled = True
+        mock_share.done_folder_name = "done"
+        mock_share.done_tag = "processed"
+
+        mock_doc = PaperlessDocument(
+            id=42,
+            title="Doc",
+            original_file_name="doc.pdf",
+            created="2025-01-15T10:00:00Z",
+            modified="2025-01-15T10:00:00Z",
+            tags=[1],
+        )
+
+        mock_paperless_client.get_tags.return_value = [
+            PaperlessTag(id=1, name="inbox", slug="inbox"),
+            PaperlessTag(id=2, name="processed", slug="processed"),
+        ]
+
+        shares: dict[str, Any] = {"inbox": mock_share}
+        provider = PaperlessProvider(
+            shares=shares,
+            paperless_url="http://paperless.local",
+        )
+
+        with patch.object(
+            provider, "_create_client", return_value=mock_paperless_client
+        ):
+            resource = DocumentResource(
+                "/inbox/Doc.pdf",
+                mock_environ_with_token,
+                provider,
+                mock_doc,
+                share=mock_share,
+            )
+
+            # Valid MOVE to done folder - should succeed (not raise)
+            result = resource.move("/inbox/done/Doc.pdf")
+
+            assert result is True
+
+    def test_move_allows_valid_done_folder_to_root(
+        self,
+        mock_environ_with_token: dict[str, Any],
+        mock_paperless_client: AsyncMock,
+    ) -> None:
+        """MOVE from done folder to root should be allowed (valid move)."""
+        mock_share = MagicMock()
+        mock_share.name = "inbox"
+        mock_share.include_tags = ["inbox"]
+        mock_share.exclude_tags = []
+        mock_share.done_folder_enabled = True
+        mock_share.done_folder_name = "done"
+        mock_share.done_tag = "processed"
+
+        mock_doc = PaperlessDocument(
+            id=42,
+            title="Doc",
+            original_file_name="doc.pdf",
+            created="2025-01-15T10:00:00Z",
+            modified="2025-01-15T10:00:00Z",
+            tags=[1, 2],
+        )
+
+        mock_paperless_client.get_tags.return_value = [
+            PaperlessTag(id=1, name="inbox", slug="inbox"),
+            PaperlessTag(id=2, name="processed", slug="processed"),
+        ]
+
+        shares: dict[str, Any] = {"inbox": mock_share}
+        provider = PaperlessProvider(
+            shares=shares,
+            paperless_url="http://paperless.local",
+        )
+
+        with patch.object(
+            provider, "_create_client", return_value=mock_paperless_client
+        ):
+            resource = DocumentResource(
+                "/inbox/done/Doc.pdf",
+                mock_environ_with_token,
+                provider,
+                mock_doc,
+                share=mock_share,
+                in_done_folder=True,
+            )
+
+            # Valid MOVE from done folder to root - should succeed (not raise)
+            result = resource.move("/inbox/Doc.pdf")
+
+            assert result is True
+
+    def test_move_allows_same_location_rename(
+        self,
+        mock_environ_with_token: dict[str, Any],
+        mock_paperless_client: AsyncMock,
+    ) -> None:
+        """MOVE to same location (rename) should be allowed as no-op."""
+        mock_share = MagicMock()
+        mock_share.name = "inbox"
+        mock_share.include_tags = ["inbox"]
+        mock_share.exclude_tags = []
+        mock_share.done_folder_enabled = True
+        mock_share.done_folder_name = "done"
+        mock_share.done_tag = "processed"
+
+        mock_doc = PaperlessDocument(
+            id=42,
+            title="Doc",
+            original_file_name="doc.pdf",
+            created="2025-01-15T10:00:00Z",
+            modified="2025-01-15T10:00:00Z",
+            tags=[1],
+        )
+
+        shares: dict[str, Any] = {"inbox": mock_share}
+        provider = PaperlessProvider(
+            shares=shares,
+            paperless_url="http://paperless.local",
+        )
+
+        with patch.object(
+            provider, "_create_client", return_value=mock_paperless_client
+        ):
+            resource = DocumentResource(
+                "/inbox/Doc.pdf",
+                mock_environ_with_token,
+                provider,
+                mock_doc,
+                share=mock_share,
+            )
+
+            # MOVE to same location (rename) - should succeed as no-op
+            result = resource.move("/inbox/Renamed.pdf")
+
+            assert result is True
+            # Should NOT add or remove any tags
+            mock_paperless_client.add_tag_to_document.assert_not_called()
+            mock_paperless_client.remove_tag_from_document.assert_not_called()
+
+    def test_move_rejects_cross_share_with_done_folder(
+        self,
+        mock_environ_with_token: dict[str, Any],
+        mock_paperless_client: AsyncMock,
+    ) -> None:
+        """MOVE to done folder of different share should be rejected."""
+        from wsgidav.dav_error import DAVError
+
+        mock_share = MagicMock()
+        mock_share.name = "share1"
+        mock_share.include_tags = ["inbox"]
+        mock_share.exclude_tags = []
+        mock_share.done_folder_enabled = True
+        mock_share.done_folder_name = "done"
+        mock_share.done_tag = "processed"
+
+        mock_doc = PaperlessDocument(
+            id=42,
+            title="Doc",
+            original_file_name="doc.pdf",
+            created="2025-01-15T10:00:00Z",
+            modified="2025-01-15T10:00:00Z",
+            tags=[1],
+        )
+
+        shares: dict[str, Any] = {"share1": mock_share}
+        provider = PaperlessProvider(
+            shares=shares,
+            paperless_url="http://paperless.local",
+        )
+
+        with patch.object(
+            provider, "_create_client", return_value=mock_paperless_client
+        ):
+            resource = DocumentResource(
+                "/share1/Doc.pdf",
+                mock_environ_with_token,
+                provider,
+                mock_doc,
+                share=mock_share,
+            )
+
+            # Attempt MOVE to done folder of different share - should be rejected
+            with pytest.raises(DAVError) as exc:
+                resource.move("/share2/done/Doc.pdf")
+
+            assert exc.value.value == 403
