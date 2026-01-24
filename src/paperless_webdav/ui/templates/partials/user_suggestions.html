@@ -1,0 +1,23 @@
+{% if users %}
+<ul class="absolute z-10 w-full bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-y-auto">
+    {% for user in users %}
+    <li class="user-suggestion px-3 py-2 hover:bg-gray-100 cursor-pointer"
+        data-username="{{ user.username }}"
+        onclick="selectUser(this)">
+        <span class="text-sm text-gray-700 font-medium">{{ user.username }}</span>
+        {% if user.first_name or user.last_name %}
+        <span class="text-sm text-gray-500 ml-2">{{ user.first_name }} {{ user.last_name }}</span>
+        {% endif %}
+    </li>
+    {% endfor %}
+</ul>
+{% elif fallback %}
+<div class="absolute z-10 w-full bg-white border border-gray-300 rounded-md shadow-lg p-3 text-sm text-gray-500">
+    <p class="font-medium text-gray-700">Enter usernames manually</p>
+    <p class="mt-1">You don't have permission to list users. Type usernames directly and press Enter to add them.</p>
+</div>
+{% elif query %}
+<div class="absolute z-10 w-full bg-white border border-gray-300 rounded-md shadow-lg p-3 text-sm text-gray-500">
+    No users found matching "{{ query }}"
+</div>
+{% endif %}

@@ -179,3 +179,46 @@ async def tag_suggestions(
             "query": q,
         },
     )
+
+
+@router.get("/partials/user-suggestions", response_class=HTMLResponse, response_model=None)
+async def user_suggestions(
+    request: Request,
+    q: Annotated[str, Query(description="Username search query")] = "",
+    current_user: Annotated[AuthenticatedUser | None, Depends(get_current_user_optional)] = None,
+    settings: Annotated[Settings, Depends(get_settings)] = None,
+) -> HTMLResponse | RedirectResponse:
+    """Return user suggestions as HTML partial for HTMX autocomplete.
+
+    Requires authentication - returns 401 if not authenticated.
+    Searches Paperless for users matching the query string.
+    If user lacks permission (403), returns fallback message.
+    """
+    if current_user is None:
+        return HTMLResponse(content="", status_code=401)
+
+    users = []
+    fallback = False
+
+    if q and len(q) >= 1:
+        client = PaperlessClient(base_url=settings.paperless_url, token=current_user.token)
+        users = await client.search_users(q)
+        # If we get no users and had a query, check if it's because of permissions
+        if not users:
+            # Try to determine if it's a permission issue by checking get_users
+            all_users = await client.get_users()
+            if not all_users:
+                # Empty list from get_users means either no users or no permission
+                # We assume permission issue if user searched but got nothing
+                fallback = True
+        logger.debug("user_suggestions_fetched", query=q, count=len(users), fallback=fallback)
+
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/user_suggestions.html",
+        context={
+            "users": users,
+            "query": q,
+            "fallback": fallback,
+        },
+    )

@@ -12,6 +12,7 @@ from paperless_webdav.paperless_client import (
     PaperlessClient,
     PaperlessDocument,
     PaperlessTag,
+    PaperlessUser,
 )
 
 
@@ -322,9 +323,7 @@ async def test_validate_token_success(client: PaperlessClient, base_url: str) ->
 @pytest.mark.asyncio
 async def test_validate_token_failure(client: PaperlessClient, base_url: str) -> None:
     """401 response returns False."""
-    respx.get(f"{base_url}/api/").mock(
-        return_value=Response(401, json={"detail": "Invalid token"})
-    )
+    respx.get(f"{base_url}/api/").mock(return_value=Response(401, json={"detail": "Invalid token"}))
 
     result = await client.validate_token()
 
@@ -342,3 +341,92 @@ async def test_authorization_header(client: PaperlessClient, base_url: str) -> N
     assert len(respx.calls) == 1
     auth_header = respx.calls[0].request.headers.get("Authorization")
     assert auth_header == "Token test-api-token-12345"
+
+
+# --- User Tests ---
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_get_users(client: PaperlessClient, base_url: str) -> None:
+    """Should return users from Paperless API."""
+    users_data = {
+        "results": [
+            {"id": 1, "username": "alice", "first_name": "Alice", "last_name": "Smith"},
+            {"id": 2, "username": "bob", "first_name": "Bob", "last_name": "Jones"},
+        ],
+        "next": None,
+    }
+    respx.get(f"{base_url}/api/users/").mock(return_value=Response(200, json=users_data))
+
+    users = await client.get_users()
+
+    assert len(users) == 2
+    assert users[0] == PaperlessUser(id=1, username="alice", first_name="Alice", last_name="Smith")
+    assert users[1] == PaperlessUser(id=2, username="bob", first_name="Bob", last_name="Jones")
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_get_users_returns_empty_on_403(client: PaperlessClient, base_url: str) -> None:
+    """Should return empty list when user lacks permission to list users."""
+    respx.get(f"{base_url}/api/users/").mock(
+        return_value=Response(403, json={"detail": "Permission denied"})
+    )
+
+    users = await client.get_users()
+
+    assert users == []
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_search_users(client: PaperlessClient, base_url: str) -> None:
+    """Search users by username filter."""
+    respx.get(f"{base_url}/api/users/", params={"username__icontains": "ali"}).mock(
+        return_value=Response(
+            200,
+            json={
+                "results": [
+                    {"id": 1, "username": "alice", "first_name": "Alice", "last_name": "Smith"},
+                ],
+                "next": None,
+            },
+        )
+    )
+
+    users = await client.search_users("ali")
+
+    assert len(users) == 1
+    assert users[0].username == "alice"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_search_users_returns_empty_on_403(client: PaperlessClient, base_url: str) -> None:
+    """Should return empty list when user lacks permission to search users."""
+    respx.get(f"{base_url}/api/users/", params={"username__icontains": "ali"}).mock(
+        return_value=Response(403, json={"detail": "Permission denied"})
+    )
+
+    users = await client.search_users("ali")
+
+    assert users == []
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_get_users_handles_missing_names(client: PaperlessClient, base_url: str) -> None:
+    """Should handle users with missing first/last names."""
+    users_data = {
+        "results": [
+            {"id": 1, "username": "alice"},  # No first_name or last_name
+        ],
+        "next": None,
+    }
+    respx.get(f"{base_url}/api/users/").mock(return_value=Response(200, json=users_data))
+
+    users = await client.get_users()
+
+    assert len(users) == 1
+    assert users[0] == PaperlessUser(id=1, username="alice", first_name="", last_name="")

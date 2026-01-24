@@ -11,7 +11,7 @@ from itsdangerous import URLSafeTimedSerializer
 from paperless_webdav.app import create_app
 from paperless_webdav.dependencies import get_db_session
 from paperless_webdav.models import Share
-from paperless_webdav.paperless_client import PaperlessTag
+from paperless_webdav.paperless_client import PaperlessTag, PaperlessUser
 
 
 @pytest.fixture
@@ -638,3 +638,136 @@ async def test_form_has_htmx_autocomplete(app_with_db, auth_cookie, mock_setting
     assert "/ui/partials/tag-suggestions" in response.text
     assert "hx-trigger" in response.text
     assert "hx-target" in response.text
+
+
+# --- User Autocomplete Tests ---
+
+
+@pytest.mark.asyncio
+async def test_user_suggestions_returns_matches(app_with_db, auth_cookie, mock_settings):
+    """User suggestions should return matching users from Paperless."""
+    with patch("paperless_webdav.ui.routes.PaperlessClient") as mock_client_class:
+        mock_client = MagicMock()
+        mock_client.search_users = AsyncMock(
+            return_value=[
+                PaperlessUser(id=1, username="alice", first_name="Alice", last_name="Smith"),
+                PaperlessUser(id=2, username="alicia", first_name="Alicia", last_name="Jones"),
+            ]
+        )
+        mock_client.get_users = AsyncMock(return_value=[])  # Not called when search returns results
+        mock_client_class.return_value = mock_client
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app_with_db), base_url="http://test"
+        ) as client:
+            response = await client.get(
+                "/ui/partials/user-suggestions",
+                params={"q": "ali"},
+                cookies=auth_cookie,
+            )
+
+    assert response.status_code == 200
+    assert "alice" in response.text
+    assert "alicia" in response.text
+    assert "Alice" in response.text
+    assert "Smith" in response.text
+
+
+@pytest.mark.asyncio
+async def test_user_suggestions_requires_auth(app_with_db):
+    """User suggestions endpoint should require authentication."""
+    async with AsyncClient(
+        transport=ASGITransport(app=app_with_db), base_url="http://test"
+    ) as client:
+        response = await client.get(
+            "/ui/partials/user-suggestions",
+            params={"q": "test"},
+        )
+
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_user_suggestions_shows_fallback_on_permission_denied(
+    app_with_db, auth_cookie, mock_settings
+):
+    """User suggestions should show fallback message when user lacks permission."""
+    with patch("paperless_webdav.ui.routes.PaperlessClient") as mock_client_class:
+        mock_client = MagicMock()
+        mock_client.search_users = AsyncMock(return_value=[])  # Empty due to 403
+        mock_client.get_users = AsyncMock(return_value=[])  # Also empty (permission denied)
+        mock_client_class.return_value = mock_client
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app_with_db), base_url="http://test"
+        ) as client:
+            response = await client.get(
+                "/ui/partials/user-suggestions",
+                params={"q": "test"},
+                cookies=auth_cookie,
+            )
+
+    assert response.status_code == 200
+    assert "Enter usernames manually" in response.text
+
+
+@pytest.mark.asyncio
+async def test_user_suggestions_empty_query_returns_empty(app_with_db, auth_cookie, mock_settings):
+    """User suggestions with empty query should not search."""
+    with patch("paperless_webdav.ui.routes.PaperlessClient") as mock_client_class:
+        mock_client = MagicMock()
+        mock_client.search_users = AsyncMock(return_value=[])
+        mock_client_class.return_value = mock_client
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app_with_db), base_url="http://test"
+        ) as client:
+            response = await client.get(
+                "/ui/partials/user-suggestions",
+                params={"q": ""},
+                cookies=auth_cookie,
+            )
+
+    assert response.status_code == 200
+    # Should not have called search_users with empty query
+    mock_client.search_users.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_user_suggestions_no_matches_shows_message(app_with_db, auth_cookie, mock_settings):
+    """User suggestions with no matches should show appropriate message."""
+    with patch("paperless_webdav.ui.routes.PaperlessClient") as mock_client_class:
+        mock_client = MagicMock()
+        mock_client.search_users = AsyncMock(return_value=[])
+        # Return at least one user to show we have permission but no matches
+        mock_client.get_users = AsyncMock(
+            return_value=[PaperlessUser(id=1, username="bob", first_name="Bob", last_name="")]
+        )
+        mock_client_class.return_value = mock_client
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app_with_db), base_url="http://test"
+        ) as client:
+            response = await client.get(
+                "/ui/partials/user-suggestions",
+                params={"q": "nonexistent"},
+                cookies=auth_cookie,
+            )
+
+    assert response.status_code == 200
+    assert "No users found" in response.text
+    assert "nonexistent" in response.text
+
+
+@pytest.mark.asyncio
+async def test_form_has_user_autocomplete(app_with_db, auth_cookie, mock_settings):
+    """Create share form should have HTMX autocomplete for allowed_users field."""
+    async with AsyncClient(
+        transport=ASGITransport(app=app_with_db), base_url="http://test"
+    ) as client:
+        response = await client.get("/ui/shares/new", cookies=auth_cookie)
+
+    assert response.status_code == 200
+    assert "/ui/partials/user-suggestions" in response.text
+    assert 'data-field="allowed_users"' in response.text
+    assert "allowed_users_chips" in response.text

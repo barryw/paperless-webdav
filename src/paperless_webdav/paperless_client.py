@@ -22,6 +22,16 @@ class PaperlessTag:
 
 
 @dataclass(frozen=True)
+class PaperlessUser:
+    """Represents a user in Paperless-ngx."""
+
+    id: int
+    username: str
+    first_name: str = ""
+    last_name: str = ""
+
+
+@dataclass(frozen=True)
 class PaperlessDocument:
     """Represents a document in Paperless-ngx."""
 
@@ -308,3 +318,74 @@ class PaperlessClient:
                 document_id=document_id,
                 tag_id=tag_id,
             )
+
+    async def get_users(self) -> list[PaperlessUser]:
+        """Fetch all users from Paperless-ngx.
+
+        Returns empty list if 403 (no permission to list users).
+
+        Returns:
+            List of PaperlessUser objects
+        """
+        try:
+            response = await self._request("GET", "/api/users/")
+            if response.status_code == 403:
+                logger.debug("get_users_forbidden")
+                return []
+            response.raise_for_status()
+            data = response.json()
+            users = [
+                PaperlessUser(
+                    id=user["id"],
+                    username=user["username"],
+                    first_name=user.get("first_name", ""),
+                    last_name=user.get("last_name", ""),
+                )
+                for user in data.get("results", [])
+            ]
+            logger.debug("fetched_users", count=len(users))
+            return users
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 403:
+                logger.debug("get_users_forbidden")
+                return []
+            raise
+
+    async def search_users(self, query: str) -> list[PaperlessUser]:
+        """Search users by username.
+
+        Returns empty list if 403 (no permission to list users).
+
+        Args:
+            query: Partial username to search for (case-insensitive)
+
+        Returns:
+            List of matching PaperlessUser objects
+        """
+        try:
+            response = await self._request(
+                "GET",
+                "/api/users/",
+                params={"username__icontains": query},
+            )
+            if response.status_code == 403:
+                logger.debug("search_users_forbidden", query=query)
+                return []
+            response.raise_for_status()
+            data = response.json()
+            users = [
+                PaperlessUser(
+                    id=user["id"],
+                    username=user["username"],
+                    first_name=user.get("first_name", ""),
+                    last_name=user.get("last_name", ""),
+                )
+                for user in data.get("results", [])
+            ]
+            logger.debug("searched_users", query=query, count=len(users))
+            return users
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 403:
+                logger.debug("search_users_forbidden", query=query)
+                return []
+            raise
