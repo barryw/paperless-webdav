@@ -1480,23 +1480,6 @@ async def test_full_share_crud_flow(app_with_db, mock_settings):
 # --- Token Setup Page Tests ---
 
 
-@pytest.fixture
-def oidc_session_without_token(mock_settings):
-    """Create a session cookie for OIDC user without Paperless token."""
-    serializer = URLSafeTimedSerializer("test-secret-key-for-sessions")
-    # OIDC users may have username but no token initially
-    session_value = serializer.dumps({"username": "oidc-user", "token": ""})
-    return {"session": session_value}
-
-
-@pytest.fixture
-def oidc_session_with_token(mock_settings):
-    """Create a session cookie for OIDC user with Paperless token."""
-    serializer = URLSafeTimedSerializer("test-secret-key-for-sessions")
-    session_value = serializer.dumps({"username": "oidc-user", "token": "valid-paperless-token"})
-    return {"session": session_value}
-
-
 @pytest.mark.asyncio
 async def test_token_setup_page_renders(app_with_db, auth_cookie):
     """Token setup page should render for authenticated users."""
