@@ -7,10 +7,22 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+# Filter expected warnings from mocking async functions in sync test context.
+# These warnings occur because AsyncMock coroutines are created but not awaited
+# when we mock async functions that are passed to run_async (which is also mocked).
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:coroutine.*was never awaited:RuntimeWarning"
+)
+
 
 @pytest.fixture
-def mock_settings():
-    """Provide test settings."""
+def mock_main_settings():
+    """Provide test settings for main module tests.
+
+    Named differently from conftest's mock_main_settings to avoid confusion,
+    as this fixture includes additional environment variables specific
+    to main module testing (ADMIN_PORT, WEBDAV_PORT, LOG_LEVEL, LOG_FORMAT).
+    """
     with patch.dict(
         "os.environ",
         {
@@ -35,7 +47,7 @@ def mock_settings():
 class TestLoadSharesSync:
     """Tests for load_shares_sync function."""
 
-    def test_load_shares_from_database(self, mock_settings):
+    def test_load_shares_from_database(self, mock_main_settings):
         """load_shares_sync should fetch shares from database and return dict."""
         from paperless_webdav.main import load_shares_sync
 
@@ -55,7 +67,7 @@ class TestLoadSharesSync:
             assert shares["tax2025"] == mock_share1
             assert shares["receipts"] == mock_share2
 
-    def test_load_shares_returns_empty_dict_when_no_shares(self, mock_settings):
+    def test_load_shares_returns_empty_dict_when_no_shares(self, mock_main_settings):
         """load_shares_sync should return empty dict when no shares exist."""
         from paperless_webdav.main import load_shares_sync
 
@@ -72,7 +84,7 @@ class TestLoadAllShares:
 
     @pytest.mark.asyncio
     async def test_load_all_shares_returns_empty_when_no_session_factory(
-        self, mock_settings
+        self, mock_main_settings
     ):
         """_load_all_shares should return empty list when session factory is None."""
         from paperless_webdav.main import _load_all_shares
@@ -82,7 +94,7 @@ class TestLoadAllShares:
             assert result == []
 
     @pytest.mark.asyncio
-    async def test_load_all_shares_queries_database(self, mock_settings):
+    async def test_load_all_shares_queries_database(self, mock_main_settings):
         """_load_all_shares should query all shares from database."""
         from paperless_webdav.main import _load_all_shares
 
@@ -116,13 +128,15 @@ class TestLoadAllShares:
 class TestRunServers:
     """Tests for run_servers function."""
 
-    def test_run_servers_initializes_database(self, mock_settings):
+    def test_run_servers_initializes_database(self, mock_main_settings):
         """run_servers should initialize database on startup."""
         from paperless_webdav.main import run_servers
 
         with (
             patch("paperless_webdav.main.setup_logging"),
             patch("paperless_webdav.main.logger"),
+            patch("paperless_webdav.main.init_database", new_callable=AsyncMock) as mock_init_db,
+            patch("paperless_webdav.main.close_database", new_callable=AsyncMock),
             patch("paperless_webdav.main.run_async") as mock_run_async,
             patch("paperless_webdav.main.WebDAVServer") as mock_webdav,
             patch("paperless_webdav.main.signal.signal"),
@@ -144,7 +158,7 @@ class TestRunServers:
             assert len(calls) >= 1
             # First call should be to init_database (it's a coroutine)
 
-    def test_run_servers_creates_webdav_server_in_background_thread(self, mock_settings):
+    def test_run_servers_creates_webdav_server_in_background_thread(self, mock_main_settings):
         """run_servers should create WebDAV server and run it in daemon thread."""
         from paperless_webdav.main import run_servers
 
@@ -159,6 +173,8 @@ class TestRunServers:
         with (
             patch("paperless_webdav.main.setup_logging"),
             patch("paperless_webdav.main.logger"),
+            patch("paperless_webdav.main.init_database", new_callable=AsyncMock),
+            patch("paperless_webdav.main.close_database", new_callable=AsyncMock),
             patch("paperless_webdav.main.run_async"),
             patch("paperless_webdav.main.WebDAVServer") as mock_webdav,
             patch("paperless_webdav.main.threading.Thread") as mock_thread_class,
@@ -189,13 +205,15 @@ class TestRunServers:
 
             mock_thread.start.assert_called_once()
 
-    def test_run_servers_registers_signal_handlers(self, mock_settings):
+    def test_run_servers_registers_signal_handlers(self, mock_main_settings):
         """run_servers should register SIGINT and SIGTERM handlers."""
         from paperless_webdav.main import run_servers
 
         with (
             patch("paperless_webdav.main.setup_logging"),
             patch("paperless_webdav.main.logger"),
+            patch("paperless_webdav.main.init_database", new_callable=AsyncMock),
+            patch("paperless_webdav.main.close_database", new_callable=AsyncMock),
             patch("paperless_webdav.main.run_async"),
             patch("paperless_webdav.main.WebDAVServer") as mock_webdav,
             patch("paperless_webdav.main.threading.Thread") as mock_thread_class,
@@ -218,13 +236,15 @@ class TestRunServers:
             assert signal.SIGINT in signal_calls
             assert signal.SIGTERM in signal_calls
 
-    def test_run_servers_runs_fastapi_via_uvicorn(self, mock_settings):
+    def test_run_servers_runs_fastapi_via_uvicorn(self, mock_main_settings):
         """run_servers should run FastAPI via uvicorn in main thread."""
         from paperless_webdav.main import run_servers
 
         with (
             patch("paperless_webdav.main.setup_logging"),
             patch("paperless_webdav.main.logger"),
+            patch("paperless_webdav.main.init_database", new_callable=AsyncMock),
+            patch("paperless_webdav.main.close_database", new_callable=AsyncMock),
             patch("paperless_webdav.main.run_async"),
             patch("paperless_webdav.main.WebDAVServer") as mock_webdav,
             patch("paperless_webdav.main.threading.Thread") as mock_thread_class,
@@ -257,7 +277,7 @@ class TestRunServers:
 class TestShutdownHandler:
     """Tests for shutdown signal handler."""
 
-    def test_shutdown_handler_stops_webdav_server(self, mock_settings):
+    def test_shutdown_handler_stops_webdav_server(self, mock_main_settings):
         """Shutdown handler should stop WebDAV server."""
         from paperless_webdav.main import run_servers
 
@@ -271,6 +291,8 @@ class TestShutdownHandler:
         with (
             patch("paperless_webdav.main.setup_logging"),
             patch("paperless_webdav.main.logger"),
+            patch("paperless_webdav.main.init_database", new_callable=AsyncMock),
+            patch("paperless_webdav.main.close_database", new_callable=AsyncMock),
             patch("paperless_webdav.main.run_async"),
             patch("paperless_webdav.main.WebDAVServer") as mock_webdav,
             patch("paperless_webdav.main.threading.Thread") as mock_thread_class,
@@ -300,7 +322,7 @@ class TestShutdownHandler:
                 # Verify webdav server stop was called
                 mock_webdav_instance.stop.assert_called_once()
 
-    def test_shutdown_handler_closes_database(self, mock_settings):
+    def test_shutdown_handler_closes_database(self, mock_main_settings):
         """Shutdown handler should close database connection."""
         from paperless_webdav.main import run_servers
 
@@ -314,6 +336,8 @@ class TestShutdownHandler:
         with (
             patch("paperless_webdav.main.setup_logging"),
             patch("paperless_webdav.main.logger"),
+            patch("paperless_webdav.main.init_database", new_callable=AsyncMock),
+            patch("paperless_webdav.main.close_database", new_callable=AsyncMock),
             patch("paperless_webdav.main.run_async") as mock_run_async,
             patch("paperless_webdav.main.WebDAVServer") as mock_webdav,
             patch("paperless_webdav.main.threading.Thread") as mock_thread_class,
@@ -346,7 +370,7 @@ class TestShutdownHandler:
                 # Verify close_database was called via run_async
                 assert mock_run_async.called
 
-    def test_shutdown_handler_exits_with_code_zero(self, mock_settings):
+    def test_shutdown_handler_exits_with_code_zero(self, mock_main_settings):
         """Shutdown handler should exit with code 0."""
         from paperless_webdav.main import run_servers
 
@@ -360,6 +384,8 @@ class TestShutdownHandler:
         with (
             patch("paperless_webdav.main.setup_logging"),
             patch("paperless_webdav.main.logger"),
+            patch("paperless_webdav.main.init_database", new_callable=AsyncMock),
+            patch("paperless_webdav.main.close_database", new_callable=AsyncMock),
             patch("paperless_webdav.main.run_async"),
             patch("paperless_webdav.main.WebDAVServer") as mock_webdav,
             patch("paperless_webdav.main.threading.Thread") as mock_thread_class,
@@ -392,13 +418,15 @@ class TestShutdownHandler:
 class TestLoggingSetup:
     """Tests for logging setup in run_servers."""
 
-    def test_run_servers_calls_setup_logging(self, mock_settings):
+    def test_run_servers_calls_setup_logging(self, mock_main_settings):
         """run_servers should call setup_logging with settings."""
         from paperless_webdav.main import run_servers
 
         with (
             patch("paperless_webdav.main.setup_logging") as mock_setup_logging,
             patch("paperless_webdav.main.logger"),
+            patch("paperless_webdav.main.init_database", new_callable=AsyncMock),
+            patch("paperless_webdav.main.close_database", new_callable=AsyncMock),
             patch("paperless_webdav.main.run_async"),
             patch("paperless_webdav.main.WebDAVServer") as mock_webdav,
             patch("paperless_webdav.main.threading.Thread") as mock_thread_class,

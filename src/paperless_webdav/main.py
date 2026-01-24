@@ -7,6 +7,7 @@ import threading
 from typing import Any
 
 import uvicorn
+from sqlalchemy import select
 
 from paperless_webdav.async_bridge import run_async
 from paperless_webdav.config import get_settings
@@ -20,8 +21,6 @@ logger = get_logger(__name__)
 
 async def _load_all_shares() -> list[Share]:
     """Load all shares from database."""
-    from sqlalchemy import select
-
     if _async_session_factory is None:
         return []
 
