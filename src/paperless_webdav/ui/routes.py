@@ -6,13 +6,18 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from paperless_webdav.auth.paperless import (
+    AuthenticatedUser,
     _authenticate_with_paperless,
     _create_session,
+    get_current_user_optional,
 )
 from paperless_webdav.config import Settings, get_settings
+from paperless_webdav.dependencies import get_db_session
 from paperless_webdav.logging import get_logger
+from paperless_webdav.services.shares import get_user_shares
 
 logger = get_logger(__name__)
 
@@ -44,9 +49,7 @@ async def login_submit(
 
     Validates credentials against Paperless API and creates session on success.
     """
-    token, error = await _authenticate_with_paperless(
-        username, password, settings.paperless_url
-    )
+    token, error = await _authenticate_with_paperless(username, password, settings.paperless_url)
 
     if error is not None:
         return templates.TemplateResponse(
@@ -69,3 +72,25 @@ async def login_submit(
 
     logger.info("login_success", username=username)
     return response
+
+
+@router.get("/shares", response_class=HTMLResponse, response_model=None)
+async def shares_list(
+    request: Request,
+    current_user: Annotated[AuthenticatedUser | None, Depends(get_current_user_optional)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> HTMLResponse | RedirectResponse:
+    """Render the shares list page.
+
+    Requires authentication - redirects to login if not authenticated.
+    """
+    if current_user is None:
+        return RedirectResponse(url="/ui/login", status_code=303)
+
+    shares = await get_user_shares(session, current_user.username)
+
+    return templates.TemplateResponse(
+        request=request,
+        name="shares/list.html",
+        context={"shares": shares, "username": current_user.username},
+    )
