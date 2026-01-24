@@ -84,6 +84,3 @@ class TagResponse(BaseModel):
     name: str
     slug: str
     color: str | None = None
-    match: str | None = None
-    matching_algorithm: int | None = None
-    is_insensitive: bool = True

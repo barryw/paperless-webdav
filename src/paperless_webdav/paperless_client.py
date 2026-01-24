@@ -18,6 +18,7 @@ class PaperlessTag:
     id: int
     name: str
     slug: str
+    color: str | None = None
 
 
 @dataclass(frozen=True)
@@ -153,6 +154,7 @@ class PaperlessClient:
                 id=tag["id"],
                 name=tag["name"],
                 slug=tag["slug"],
+                color=tag.get("color"),
             )
             for tag in results
         ]
@@ -177,6 +179,7 @@ class PaperlessClient:
                 id=tag["id"],
                 name=tag["name"],
                 slug=tag["slug"],
+                color=tag.get("color"),
             )
             for tag in results
         ]
