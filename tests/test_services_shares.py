@@ -481,3 +481,139 @@ class TestCheckDbConnectivity:
         result = await check_db_connectivity(mock_session)
 
         assert result is False
+
+
+class TestStoreUserToken:
+    """Tests for store_user_token service function."""
+
+    @pytest.mark.asyncio
+    async def test_store_user_token_encrypts_token(self, mock_session, test_user):
+        """store_user_token should encrypt the token before storing."""
+        from paperless_webdav.services.shares import store_user_token
+
+        # Mock user lookup - user exists
+        mock_session.execute.return_value = mock_result_with_value(test_user)
+
+        encryption_key = "MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE="  # 32 bytes base64
+
+        with patch("paperless_webdav.services.shares.TokenEncryption") as mock_enc_class:
+            mock_enc = MagicMock()
+            mock_enc.encrypt.return_value = b"encrypted_token_data"
+            mock_enc_class.return_value = mock_enc
+
+            await store_user_token(
+                mock_session, "testuser", "plain_token_123", encryption_key
+            )
+
+            # Verify TokenEncryption was initialized with key
+            mock_enc_class.assert_called_once_with(encryption_key)
+            # Verify encrypt was called with the plain token
+            mock_enc.encrypt.assert_called_once_with("plain_token_123")
+
+    @pytest.mark.asyncio
+    async def test_store_user_token_creates_user_if_not_exists(self, mock_session):
+        """store_user_token should create user if not exists."""
+        from paperless_webdav.services.shares import store_user_token
+
+        # First call: user not found, second call: after creation
+        new_user = User(id=uuid4(), external_id="newuser")
+        mock_session.execute.return_value = mock_result_with_value(None)
+
+        encryption_key = "MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE="
+
+        with patch("paperless_webdav.services.shares.TokenEncryption") as mock_enc_class:
+            mock_enc = MagicMock()
+            mock_enc.encrypt.return_value = b"encrypted_data"
+            mock_enc_class.return_value = mock_enc
+
+            await store_user_token(
+                mock_session, "newuser", "token", encryption_key
+            )
+
+            # Verify a new user was added
+            mock_session.add.assert_called()
+            mock_session.commit.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_store_user_token_updates_existing_user(self, mock_session, test_user):
+        """store_user_token should update existing user's token."""
+        from paperless_webdav.services.shares import store_user_token
+
+        # User exists
+        mock_session.execute.return_value = mock_result_with_value(test_user)
+
+        encryption_key = "MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE="
+
+        with patch("paperless_webdav.services.shares.TokenEncryption") as mock_enc_class:
+            mock_enc = MagicMock()
+            mock_enc.encrypt.return_value = b"new_encrypted_data"
+            mock_enc_class.return_value = mock_enc
+
+            await store_user_token(
+                mock_session, test_user.external_id, "new_token", encryption_key
+            )
+
+            # Verify the user's token was updated
+            assert test_user.paperless_token_encrypted == b"new_encrypted_data"
+            mock_session.commit.assert_called()
+
+
+class TestGetUserToken:
+    """Tests for get_user_token service function."""
+
+    @pytest.mark.asyncio
+    async def test_get_user_token_decrypts_token(self, mock_session, test_user):
+        """get_user_token should decrypt the stored token."""
+        from paperless_webdav.services.shares import get_user_token
+
+        # User has encrypted token
+        test_user.paperless_token_encrypted = b"encrypted_token_data"
+        mock_session.execute.return_value = mock_result_with_value(test_user)
+
+        encryption_key = "MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE="
+
+        with patch("paperless_webdav.services.shares.TokenEncryption") as mock_enc_class:
+            mock_enc = MagicMock()
+            mock_enc.decrypt.return_value = "decrypted_plain_token"
+            mock_enc_class.return_value = mock_enc
+
+            result = await get_user_token(
+                mock_session, test_user.external_id, encryption_key
+            )
+
+            # Verify TokenEncryption was initialized with key
+            mock_enc_class.assert_called_once_with(encryption_key)
+            # Verify decrypt was called with the encrypted data
+            mock_enc.decrypt.assert_called_once_with(b"encrypted_token_data")
+            assert result == "decrypted_plain_token"
+
+    @pytest.mark.asyncio
+    async def test_get_user_token_returns_none_for_nonexistent_user(self, mock_session):
+        """get_user_token should return None for non-existent user."""
+        from paperless_webdav.services.shares import get_user_token
+
+        # User not found
+        mock_session.execute.return_value = mock_result_with_value(None)
+
+        encryption_key = "MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE="
+
+        result = await get_user_token(mock_session, "nonexistent", encryption_key)
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_get_user_token_returns_none_for_user_without_token(
+        self, mock_session, test_user
+    ):
+        """get_user_token should return None for user without stored token."""
+        from paperless_webdav.services.shares import get_user_token
+
+        # User exists but has no token
+        test_user.paperless_token_encrypted = None
+        mock_session.execute.return_value = mock_result_with_value(test_user)
+
+        encryption_key = "MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE="
+
+        result = await get_user_token(mock_session, test_user.external_id, encryption_key)
+
+        assert result is None

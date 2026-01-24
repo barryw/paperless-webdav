@@ -6,6 +6,7 @@ from uuid import UUID
 from sqlalchemy import or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from paperless_webdav.encryption import TokenEncryption
 from paperless_webdav.logging import get_logger
 from paperless_webdav.models import Share, User
 from paperless_webdav.schemas import ShareCreate, ShareUpdate
@@ -255,3 +256,57 @@ async def check_db_connectivity(session: AsyncSession) -> bool:
     except Exception as e:
         logger.error("database_connectivity_check_failed", error=str(e))
         return False
+
+
+async def store_user_token(
+    session: AsyncSession, username: str, plain_token: str, encryption_key: str
+) -> None:
+    """Store an encrypted Paperless API token for a user.
+
+    Args:
+        session: Database session.
+        username: External user identifier (username from auth provider).
+        plain_token: The plaintext Paperless API token to store.
+        encryption_key: Base64-encoded 32-byte encryption key.
+    """
+    # Get or create the user
+    user = await get_or_create_user(session, username)
+
+    # Encrypt the token
+    encryption = TokenEncryption(encryption_key)
+    encrypted_token = encryption.encrypt(plain_token)
+
+    # Store the encrypted token
+    user.paperless_token_encrypted = encrypted_token
+    await session.commit()
+
+    logger.info("user_token_stored", external_id=username)
+
+
+async def get_user_token(
+    session: AsyncSession, username: str, encryption_key: str
+) -> str | None:
+    """Retrieve and decrypt a user's Paperless API token.
+
+    Args:
+        session: Database session.
+        username: External user identifier (username from auth provider).
+        encryption_key: Base64-encoded 32-byte encryption key.
+
+    Returns:
+        The decrypted plaintext token, or None if user not found or has no token.
+    """
+    # Find the user
+    stmt = select(User).where(User.external_id == username)
+    result = await session.execute(stmt)
+    user = result.scalar_one_or_none()
+
+    if user is None:
+        return None
+
+    if user.paperless_token_encrypted is None:
+        return None
+
+    # Decrypt and return the token
+    encryption = TokenEncryption(encryption_key)
+    return encryption.decrypt(user.paperless_token_encrypted)
