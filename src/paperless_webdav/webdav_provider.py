@@ -937,6 +937,7 @@ class DocumentResource(DAVNonCollection):  # type: ignore[misc]
             DAVError: HTTP 403 Forbidden if the move is not allowed
         """
         # Import here to avoid circular import issues with wsgidav
+        # (wsgidav.dav_error <-> wsgidav.util have circular dependencies)
         from wsgidav.dav_error import DAVError, HTTP_FORBIDDEN  # type: ignore[import-untyped]
 
         parts = [p for p in dest_path.split("/") if p]

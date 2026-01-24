@@ -12,29 +12,35 @@ from paperless_webdav.app import create_app
 @pytest.fixture
 def mock_oidc_settings():
     """Provide test settings with OIDC enabled."""
-    with patch.dict("os.environ", {
-        "PAPERLESS_URL": "http://paperless.test",
-        "DATABASE_URL": "postgresql://test:test@localhost/test",
-        "ENCRYPTION_KEY": "dGVzdGtleXRoYXRpczMyYnl0ZXNsb25nIQ==",
-        "SECRET_KEY": "test-secret-key-for-sessions",
-        "AUTH_MODE": "oidc",
-        "OIDC_ISSUER": "https://authentik.example.com/application/o/paperless",
-        "OIDC_CLIENT_ID": "test-client-id",
-        "OIDC_CLIENT_SECRET": "test-client-secret",
-    }):
+    with patch.dict(
+        "os.environ",
+        {
+            "PAPERLESS_URL": "http://paperless.test",
+            "DATABASE_URL": "postgresql://test:test@localhost/test",
+            "ENCRYPTION_KEY": "dGVzdGtleXRoYXRpczMyYnl0ZXNsb25nIQ==",
+            "SECRET_KEY": "test-secret-key-for-sessions",
+            "AUTH_MODE": "oidc",
+            "OIDC_ISSUER": "https://authentik.example.com/application/o/paperless",
+            "OIDC_CLIENT_ID": "test-client-id",
+            "OIDC_CLIENT_SECRET": "test-client-secret",
+        },
+    ):
         yield
 
 
 @pytest.fixture
 def mock_paperless_settings():
     """Provide test settings with Paperless auth mode (default)."""
-    with patch.dict("os.environ", {
-        "PAPERLESS_URL": "http://paperless.test",
-        "DATABASE_URL": "postgresql://test:test@localhost/test",
-        "ENCRYPTION_KEY": "dGVzdGtleXRoYXRpczMyYnl0ZXNsb25nIQ==",
-        "SECRET_KEY": "test-secret-key-for-sessions",
-        "AUTH_MODE": "paperless",
-    }):
+    with patch.dict(
+        "os.environ",
+        {
+            "PAPERLESS_URL": "http://paperless.test",
+            "DATABASE_URL": "postgresql://test:test@localhost/test",
+            "ENCRYPTION_KEY": "dGVzdGtleXRoYXRpczMyYnl0ZXNsb25nIQ==",
+            "SECRET_KEY": "test-secret-key-for-sessions",
+            "AUTH_MODE": "paperless",
+        },
+    ):
         yield
 
 
@@ -44,6 +50,7 @@ def oidc_app(mock_oidc_settings):
     # Clear cached settings and OAuth client
     from paperless_webdav.config import get_settings
     from paperless_webdav.auth import oidc
+
     get_settings.cache_clear()
     oidc._oauth = None
     return create_app()
@@ -54,6 +61,7 @@ def paperless_app(mock_paperless_settings):
     """Create test application with Paperless auth mode."""
     from paperless_webdav.config import get_settings
     from paperless_webdav.auth import oidc
+
     get_settings.cache_clear()
     oidc._oauth = None
     return create_app()
@@ -79,7 +87,7 @@ class TestOidcLogin:
                 transport=ASGITransport(app=oidc_app), base_url="http://test"
             ) as client:
                 # Don't follow redirects so we can inspect the redirect response
-                response = await client.get("/auth/login", follow_redirects=False)
+                _response = await client.get("/auth/login", follow_redirects=False)
 
         # Should have called authorize_redirect
         mock_oauth.authentik.authorize_redirect.assert_called_once()
@@ -259,10 +267,11 @@ class TestGetOauth:
     def test_get_oauth_registers_client(self, mock_oidc_settings):
         """get_oauth should register the authentik client."""
         from paperless_webdav.config import get_settings
-        from paperless_webdav.auth.oidc import get_oauth, _oauth
+        from paperless_webdav.auth.oidc import get_oauth
 
         # Clear any existing oauth
         import paperless_webdav.auth.oidc as oidc_module
+
         oidc_module._oauth = None
 
         get_settings.cache_clear()
@@ -281,6 +290,7 @@ class TestGetOauth:
         from paperless_webdav.auth.oidc import get_oauth
 
         import paperless_webdav.auth.oidc as oidc_module
+
         oidc_module._oauth = None
 
         get_settings.cache_clear()
