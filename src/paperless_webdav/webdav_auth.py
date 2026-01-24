@@ -89,12 +89,16 @@ class PaperlessBasicAuthenticator(BaseDomainController):  # type: ignore[misc]
         if not self._encryption_key:
             return None
 
-        async def _fetch_token():
+        # Capture encryption_key to satisfy type checker
+        encryption_key = self._encryption_key
+
+        async def _fetch_token() -> str | None:
             try:
                 async for db_session in get_session():
                     return await get_user_token(
-                        db_session, username, self._encryption_key
+                        db_session, username, encryption_key
                     )
+                return None  # Generator yielded nothing
             except RuntimeError:
                 # Database not initialized
                 logger.debug("database_not_available_for_webdav_token_lookup")

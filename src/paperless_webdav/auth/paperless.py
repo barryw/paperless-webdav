@@ -145,6 +145,7 @@ async def _load_token_from_db(username: str, settings: Settings) -> str | None:
                 settings.encryption_key.get_secret_value(),
             )
             return token
+        return None  # Generator yielded nothing
     except RuntimeError:
         # Database not initialized yet
         logger.debug("database_not_available_for_token_lookup")
