@@ -879,7 +879,11 @@ class DocumentResource(DAVNonCollection):  # type: ignore[misc]
             return None
 
         # Fetch all tags and find the done_tag
-        all_tags = run_async(client.get_tags())
+        try:
+            all_tags = run_async(client.get_tags())
+        except Exception as exc:
+            logger.error("get_tags_failed_during_move", error=str(exc))
+            return None
         tag_map = {tag.name: tag.id for tag in all_tags}
 
         return tag_map.get(self._share.done_tag)
@@ -923,10 +927,19 @@ class DocumentResource(DAVNonCollection):  # type: ignore[misc]
             )
             return False
 
-        run_async(client.add_tag_to_document(self.document.id, done_tag_id))
-        logger.info(
-            "moved_to_done_folder",
-            document_id=self.document.id,
-            done_tag_id=done_tag_id,
-        )
-        return True
+        try:
+            run_async(client.add_tag_to_document(self.document.id, done_tag_id))
+            logger.info(
+                "moved_to_done_folder",
+                document_id=self.document.id,
+                done_tag_id=done_tag_id,
+            )
+            return True
+        except Exception as exc:
+            logger.error(
+                "move_to_done_folder_failed",
+                document_id=self.document.id,
+                done_tag_id=done_tag_id,
+                error=str(exc),
+            )
+            return False
