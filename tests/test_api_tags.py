@@ -3,37 +3,26 @@
 
 import pytest
 import respx
-from dataclasses import dataclass
 from httpx import AsyncClient, ASGITransport, Response
-from uuid import UUID, uuid4
 
 from paperless_webdav.app import create_app
-
-
-@dataclass
-class MockUser:
-    """Mock user for testing."""
-
-    id: UUID
-    external_id: str
+from paperless_webdav.auth import AuthenticatedUser
+from paperless_webdav.auth import paperless as auth_module
 
 
 @pytest.fixture
 def mock_user():
     """Create a mock authenticated user."""
-    return MockUser(id=uuid4(), external_id="barry")
+    return AuthenticatedUser(username="barry", token="test-token")
 
 
 @pytest.fixture
 def app_with_auth(mock_settings, mock_user):
     """Create test application with mocked auth."""
-    # Import here to avoid circular import issues
-    from paperless_webdav.api import tags as tags_module
-
     app = create_app()
 
     # Override the auth dependency
-    app.dependency_overrides[tags_module.get_current_user] = lambda: mock_user
+    app.dependency_overrides[auth_module.get_current_user] = lambda: mock_user
 
     yield app
 

@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     rate_limit_attempts: int = Field(default=5)
     rate_limit_window_minutes: int = Field(default=15)
     secret_key: SecretStr = Field(description="Secret key for session signing")
+    cookie_secure: bool = Field(default=False, description="Set True for HTTPS in production")
 
     # Logging
     log_level: str = Field(default="INFO")

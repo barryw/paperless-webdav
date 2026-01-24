@@ -10,14 +10,8 @@ from datetime import datetime
 
 from paperless_webdav.app import create_app
 from paperless_webdav.api import shares as shares_module
-
-
-@dataclass
-class MockUser:
-    """Mock user for testing."""
-
-    id: UUID
-    external_id: str
+from paperless_webdav.auth import AuthenticatedUser
+from paperless_webdav.auth import paperless as auth_module
 
 
 @dataclass
@@ -48,7 +42,7 @@ class MockShare:
 @pytest.fixture
 def mock_user():
     """Create a mock authenticated user."""
-    return MockUser(id=uuid4(), external_id="barry")
+    return AuthenticatedUser(username="barry", token="test-token")
 
 
 @pytest.fixture
@@ -57,7 +51,7 @@ def app_with_auth(mock_settings, mock_user):
     app = create_app()
 
     # Override the auth dependency
-    app.dependency_overrides[shares_module.get_current_user] = lambda: mock_user
+    app.dependency_overrides[auth_module.get_current_user] = lambda: mock_user
 
     yield app
 
