@@ -38,6 +38,57 @@ class AuthenticatedUser:
     token: str
 
 
+async def _authenticate_with_paperless(
+    username: str, password: str, paperless_url: str
+) -> tuple[str, None] | tuple[None, str]:
+    """Authenticate with Paperless and return (token, None) or (None, error_message).
+
+    Makes a request to the Paperless /api/token/ endpoint to validate
+    credentials and obtain an API token.
+
+    Args:
+        username: The username to authenticate with.
+        password: The password to authenticate with.
+        paperless_url: The base URL of the Paperless server.
+
+    Returns:
+        A tuple of (token, None) on success, or (None, error_message) on failure.
+    """
+    token_url = f"{paperless_url.rstrip('/')}/api/token/"
+
+    try:
+        async with httpx.AsyncClient() as client:
+            paperless_response = await client.post(
+                token_url,
+                json={"username": username, "password": password},
+            )
+    except httpx.RequestError as e:
+        logger.error("paperless_connection_error", error=str(e))
+        return None, "Failed to connect to Paperless server"
+
+    if paperless_response.status_code == 400:
+        logger.info("login_failed", username=username)
+        return None, "Invalid credentials"
+
+    if paperless_response.status_code >= 500:
+        logger.error("paperless_server_error", status=paperless_response.status_code)
+        return None, "Paperless server error"
+
+    if paperless_response.status_code != 200:
+        logger.error("paperless_unexpected_status", status=paperless_response.status_code)
+        return None, "Unexpected response from Paperless server"
+
+    # Extract token from response
+    try:
+        token_data = paperless_response.json()
+        token = token_data["token"]
+    except (KeyError, ValueError) as e:
+        logger.error("paperless_invalid_response", error=str(e))
+        return None, "Invalid response from Paperless server"
+
+    return token, None
+
+
 def _get_serializer(settings: Settings) -> URLSafeTimedSerializer:
     """Get the session serializer."""
     return URLSafeTimedSerializer(settings.secret_key.get_secret_value())
@@ -115,55 +166,20 @@ async def login(
     Calls the Paperless /api/token/ endpoint to validate credentials
     and obtain an API token. On success, creates a session cookie.
     """
-    paperless_url = settings.paperless_url.rstrip("/")
-    token_url = f"{paperless_url}/api/token/"
+    token, error = await _authenticate_with_paperless(
+        credentials.username, credentials.password, settings.paperless_url
+    )
 
-    try:
-        async with httpx.AsyncClient() as client:
-            paperless_response = await client.post(
-                token_url,
-                json={
-                    "username": credentials.username,
-                    "password": credentials.password,
-                },
+    if error is not None:
+        # Map error messages to appropriate HTTP status codes
+        if error == "Invalid credentials":
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=error,
             )
-    except httpx.RequestError as e:
-        logger.error("paperless_connection_error", error=str(e))
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Failed to connect to Paperless server",
-        )
-
-    if paperless_response.status_code == 400:
-        logger.info("login_failed", username=credentials.username)
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid credentials",
-        )
-
-    if paperless_response.status_code >= 500:
-        logger.error("paperless_server_error", status=paperless_response.status_code)
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Paperless server error",
-        )
-
-    if paperless_response.status_code != 200:
-        logger.error("paperless_unexpected_status", status=paperless_response.status_code)
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Unexpected response from Paperless server",
-        )
-
-    # Extract token from response
-    try:
-        token_data = paperless_response.json()
-        token = token_data["token"]
-    except (KeyError, ValueError) as e:
-        logger.error("paperless_invalid_response", error=str(e))
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Invalid response from Paperless server",
+            detail=error,
         )
 
     # Create session cookie
