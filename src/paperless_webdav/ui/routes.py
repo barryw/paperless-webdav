@@ -394,6 +394,27 @@ async def tag_suggestions(
     )
 
 
+@router.post("/logout", response_model=None)
+async def logout(
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> RedirectResponse:
+    """Log out the user by clearing the session cookie.
+
+    Clears the session cookie and redirects to login page.
+    """
+    response = RedirectResponse(url="/ui/login", status_code=303)
+    response.set_cookie(
+        key="session",
+        value="",
+        httponly=True,
+        samesite="lax",
+        secure=settings.cookie_secure,
+        max_age=0,
+    )
+    logger.info("user_logged_out")
+    return response
+
+
 @router.get("/partials/user-suggestions", response_class=HTMLResponse, response_model=None)
 async def user_suggestions(
     request: Request,

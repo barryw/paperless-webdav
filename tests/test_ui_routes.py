@@ -1175,3 +1175,25 @@ async def test_delete_share_not_found(app_with_db, auth_cookie, mock_settings):
             )
 
     assert response.status_code == 404
+
+
+# --- Logout Tests ---
+
+
+@pytest.mark.asyncio
+async def test_logout_clears_session(app_with_db, auth_cookie, mock_settings):
+    """Logout should clear session cookie and redirect to login."""
+    async with AsyncClient(
+        transport=ASGITransport(app=app_with_db), base_url="http://test"
+    ) as client:
+        response = await client.post(
+            "/ui/logout",
+            cookies=auth_cookie,
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/ui/login"
+    # Session cookie should be cleared
+    assert "session=" in response.headers.get("set-cookie", "")
+    assert "Max-Age=0" in response.headers.get("set-cookie", "")
