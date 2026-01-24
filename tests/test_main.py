@@ -136,7 +136,7 @@ class TestRunServers:
         with (
             patch("paperless_webdav.main.setup_logging"),
             patch("paperless_webdav.main.logger"),
-            patch("paperless_webdav.main.init_database", new_callable=AsyncMock) as mock_init_db,
+            patch("paperless_webdav.main.init_database", new_callable=AsyncMock),
             patch("paperless_webdav.main.close_database", new_callable=AsyncMock),
             patch("paperless_webdav.main.run_async") as mock_run_async,
             patch("paperless_webdav.main.WebDAVServer") as mock_webdav,

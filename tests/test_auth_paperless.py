@@ -12,7 +12,6 @@ from paperless_webdav.auth.paperless import (
     _validate_session,
     get_current_user,
     get_current_user_optional,
-    AuthenticatedUser,
 )
 from paperless_webdav.config import get_settings
 
