@@ -349,7 +349,7 @@ class TestDocumentResource:
 
         creation_date = doc_resource.get_creation_date()
         assert creation_date is not None
-        assert isinstance(creation_date, datetime)
+        assert isinstance(creation_date, float)  # wsgidav expects Unix timestamp
 
     def test_exposes_last_modified(
         self,
@@ -370,7 +370,7 @@ class TestDocumentResource:
 
         modified = doc_resource.get_last_modified()
         assert modified is not None
-        assert isinstance(modified, datetime)
+        assert isinstance(modified, float)  # wsgidav expects Unix timestamp
 
     def test_exposes_etag(
         self,
@@ -1445,7 +1445,7 @@ class TestDocumentMoveToDoneFolder:
             resource._share = mock_share  # Inject share for move logic
 
             # Simulate MOVE to /inbox/done/Doc.pdf
-            resource.move("/inbox/done/Doc.pdf")
+            resource.handle_move("/inbox/done/Doc.pdf")
 
         mock_paperless_client.add_tag_to_document.assert_called_once_with(42, 2)
 
@@ -1488,7 +1488,7 @@ class TestDocumentMoveToDoneFolder:
             resource._share = mock_share
 
             # Simulate MOVE to /inbox/done/Doc.pdf
-            resource.move("/inbox/done/Doc.pdf")
+            resource.handle_move("/inbox/done/Doc.pdf")
 
         # Should NOT call add_tag_to_document
         mock_paperless_client.add_tag_to_document.assert_not_called()
@@ -1536,7 +1536,7 @@ class TestDocumentMoveToDoneFolder:
             # Simulate MOVE to /inbox/other_folder/Doc.pdf (not done folder)
             # This should be rejected with 403 Forbidden
             with pytest.raises(DAVError) as exc:
-                resource.move("/inbox/other_folder/Doc.pdf")
+                resource.handle_move("/inbox/other_folder/Doc.pdf")
 
             assert exc.value.value == 403
 
@@ -1596,7 +1596,7 @@ class TestDocumentMoveToDoneFolder:
                 )
                 resource._share = mock_share
 
-                resource.move("/inbox/done/Doc.pdf")
+                resource.handle_move("/inbox/done/Doc.pdf")
 
                 # run_async should be called for both get_tags and add_tag_to_document
                 assert mock_run_async.call_count == 2
@@ -1645,7 +1645,7 @@ class TestDocumentMoveToDoneFolder:
             resource._share = mock_share
 
             # Should not raise, even though tag doesn't exist
-            resource.move("/inbox/done/Doc.pdf")
+            resource.handle_move("/inbox/done/Doc.pdf")
 
         # Should NOT call add_tag_to_document since tag wasn't found
         mock_paperless_client.add_tag_to_document.assert_not_called()
@@ -1681,7 +1681,7 @@ class TestDocumentMoveToDoneFolder:
             # Note: _share is NOT set
 
             # Should not raise
-            resource.move("/inbox/done/Doc.pdf")
+            resource.handle_move("/inbox/done/Doc.pdf")
 
         # Should NOT call add_tag_to_document
         mock_paperless_client.add_tag_to_document.assert_not_called()
@@ -1825,7 +1825,7 @@ class TestDocumentMoveFromDoneFolder:
             )
 
             # Simulate MOVE to /inbox/Doc.pdf (root)
-            resource.move("/inbox/Doc.pdf")
+            resource.handle_move("/inbox/Doc.pdf")
 
         mock_paperless_client.remove_tag_from_document.assert_called_once_with(42, 2)
 
@@ -1869,7 +1869,7 @@ class TestDocumentMoveFromDoneFolder:
             )
 
             # Simulate MOVE to /inbox/done/Doc.pdf (same done folder)
-            resource.move("/inbox/done/Doc.pdf")
+            resource.handle_move("/inbox/done/Doc.pdf")
 
         # Should NOT remove tag (it's still in done folder)
         mock_paperless_client.remove_tag_from_document.assert_not_called()
@@ -1931,7 +1931,7 @@ class TestDocumentMoveFromDoneFolder:
             )
 
             # Should not raise even without client
-            result = resource.move("/inbox/Doc.pdf")
+            result = resource.handle_move("/inbox/Doc.pdf")
 
         # Should return False when no client is available for the remove operation
         assert result is False
@@ -2063,7 +2063,7 @@ class TestDocumentMoveFromDoneFolder:
             # Note: _in_done_folder is False by default
 
             # Simulate MOVE to /inbox/Renamed.pdf (still in root)
-            resource.move("/inbox/Renamed.pdf")
+            resource.handle_move("/inbox/Renamed.pdf")
 
         # Should NOT add or remove any tags
         mock_paperless_client.add_tag_to_document.assert_not_called()
@@ -2220,7 +2220,7 @@ class TestMoveValidation:
 
             # Attempt MOVE to different share - should be rejected
             with pytest.raises(DAVError) as exc:
-                resource.move("/share2/Doc.pdf")
+                resource.handle_move("/share2/Doc.pdf")
 
             assert exc.value.value == 403  # HTTP_FORBIDDEN
 
@@ -2266,7 +2266,7 @@ class TestMoveValidation:
 
             # Attempt MOVE to subdirectory - should be rejected
             with pytest.raises(DAVError) as exc:
-                resource.move("/inbox/subdir/Doc.pdf")
+                resource.handle_move("/inbox/subdir/Doc.pdf")
 
             assert exc.value.value == 403
 
@@ -2312,7 +2312,7 @@ class TestMoveValidation:
 
             # Attempt MOVE to deep nested path - should be rejected
             with pytest.raises(DAVError) as exc:
-                resource.move("/inbox/foo/bar/baz/Doc.pdf")
+                resource.handle_move("/inbox/foo/bar/baz/Doc.pdf")
 
             assert exc.value.value == 403
 
@@ -2358,7 +2358,7 @@ class TestMoveValidation:
 
             # Attempt MOVE to just share path - should be rejected
             with pytest.raises(DAVError) as exc:
-                resource.move("/inbox")
+                resource.handle_move("/inbox")
 
             assert exc.value.value == 403
 
@@ -2396,7 +2396,7 @@ class TestMoveValidation:
 
             # Attempt MOVE to invalid nested path - should be rejected
             with pytest.raises(DAVError) as exc:
-                resource.move("/inbox/deeply/nested/path/Doc.pdf")
+                resource.handle_move("/inbox/deeply/nested/path/Doc.pdf")
 
             assert exc.value.value == 403
 
@@ -2444,7 +2444,7 @@ class TestMoveValidation:
             )
 
             # Valid MOVE to done folder - should succeed (not raise)
-            result = resource.move("/inbox/done/Doc.pdf")
+            result = resource.handle_move("/inbox/done/Doc.pdf")
 
             assert result is True
 
@@ -2493,7 +2493,7 @@ class TestMoveValidation:
             )
 
             # Valid MOVE from done folder to root - should succeed (not raise)
-            result = resource.move("/inbox/Doc.pdf")
+            result = resource.handle_move("/inbox/Doc.pdf")
 
             assert result is True
 
@@ -2536,7 +2536,7 @@ class TestMoveValidation:
             )
 
             # MOVE to same location (rename) - should succeed as no-op
-            result = resource.move("/inbox/Renamed.pdf")
+            result = resource.handle_move("/inbox/Renamed.pdf")
 
             assert result is True
             # Should NOT add or remove any tags
@@ -2585,6 +2585,6 @@ class TestMoveValidation:
 
             # Attempt MOVE to done folder of different share - should be rejected
             with pytest.raises(DAVError) as exc:
-                resource.move("/share2/done/Doc.pdf")
+                resource.handle_move("/share2/done/Doc.pdf")
 
             assert exc.value.value == 403
