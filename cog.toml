@@ -5,12 +5,9 @@ from_latest_tag = true
 ignore_merge_commits = true
 tag_prefix = "v"
 
-# Pre/post bump hooks
+# Pre/post bump hooks - handled by CI pipeline
 pre_bump_hooks = []
-post_bump_hooks = [
-    "git push",
-    "git push origin {{version}}",
-]
+post_bump_hooks = []
 
 [changelog]
 path = "CHANGELOG.md"
