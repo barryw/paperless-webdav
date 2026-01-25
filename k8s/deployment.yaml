@@ -6,7 +6,7 @@ metadata:
   labels:
     app: paperless-webdav
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app: paperless-webdav
@@ -15,10 +15,19 @@ spec:
       labels:
         app: paperless-webdav
     spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: paperless-webdav
+                topologyKey: kubernetes.io/hostname
       containers:
         - name: paperless-webdav
           # Image tag is set by CI pipeline via kubectl set image
-          image: ghcr.io/barryw/paperless-webdav:v0.1.0
+          image: ghcr.io/barryw/paperless-webdav:v1.0.0
           imagePullPolicy: Always
           ports:
             - containerPort: 8080
