@@ -16,7 +16,7 @@ steps:
     commands:
       - apt-get update && apt-get install -y gcc libldap2-dev libsasl2-dev
       - pip install uv
-      - uv sync --frozen
+      - uv sync --frozen --all-extras
       - uv run ruff check src/ tests/
       - uv run ruff format --check src/ tests/
 
@@ -25,7 +25,7 @@ steps:
     commands:
       - apt-get update && apt-get install -y gcc libldap2-dev libsasl2-dev
       - pip install uv
-      - uv sync --frozen
+      - uv sync --frozen --all-extras
       - uv run mypy src/
     depends_on: [lint]
 
@@ -39,7 +39,7 @@ steps:
     commands:
       - apt-get update && apt-get install -y gcc libldap2-dev libsasl2-dev
       - pip install uv
-      - uv sync --frozen
+      - uv sync --frozen --all-extras
       - uv run pytest --tb=short -q
     depends_on: [lint]
 
