@@ -1,0 +1,51 @@
+# RBAC configuration for Woodpecker CI to deploy paperless-webdav
+# Apply this to your cluster before running the pipeline
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: woodpecker-deployer
+  namespace: woodpecker
+  labels:
+    app.kubernetes.io/name: woodpecker-deployer
+    app.kubernetes.io/part-of: paperless-webdav
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: paperless-webdav-deployer
+  namespace: paperless-webdav
+  labels:
+    app.kubernetes.io/name: paperless-webdav-deployer
+rules:
+  # Allow managing deployments
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "patch", "update"]
+  # Allow watching replicasets for rollout status
+  - apiGroups: ["apps"]
+    resources: ["replicasets"]
+    verbs: ["get", "list", "watch"]
+  # Allow watching pods for rollout status
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: woodpecker-paperless-webdav-deployer
+  namespace: paperless-webdav
+  labels:
+    app.kubernetes.io/name: woodpecker-paperless-webdav-deployer
+subjects:
+  - kind: ServiceAccount
+    name: woodpecker-deployer
+    namespace: woodpecker
+roleRef:
+  kind: Role
+  name: paperless-webdav-deployer
+  apiGroup: rbac.authorization.k8s.io
