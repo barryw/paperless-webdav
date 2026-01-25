@@ -1,5 +1,9 @@
 # Woodpecker CI Pipeline for paperless-webdav
 # Conventional commits + semantic versioning + auto-deploy to k8s
+#
+# Flow:
+#   Push to main: lint → typecheck → test → version-bump (creates & pushes tag)
+#   Tag event:    docker-build → github-release → deploy
 
 labels:
   platform: linux/amd64
@@ -9,10 +13,12 @@ when:
 
 steps:
   # ============================================
-  # CI: Lint, Typecheck, Test
+  # CI: Lint, Typecheck, Test (skip on tag - already passed)
   # ============================================
   lint:
     image: python:3.12-slim
+    when:
+      - event: [push, pull_request, manual]
     commands:
       - apt-get update && apt-get install -y gcc libldap2-dev libsasl2-dev
       - pip install uv
@@ -22,6 +28,8 @@ steps:
 
   typecheck:
     image: python:3.12-slim
+    when:
+      - event: [push, pull_request, manual]
     commands:
       - apt-get update && apt-get install -y gcc libldap2-dev libsasl2-dev
       - pip install uv
@@ -31,6 +39,8 @@ steps:
 
   test:
     image: python:3.12-slim
+    when:
+      - event: [push, pull_request, manual]
     environment:
       PAPERLESS_URL: http://paperless.test
       DATABASE_URL: postgresql://test:test@localhost/test
@@ -44,13 +54,16 @@ steps:
     depends_on: [typecheck]
 
   # ============================================
-  # Version Bump (main branch only)
+  # Version Bump (main branch only, creates and pushes tag)
   # ============================================
   version-bump:
     image: python:3.12-slim
     when:
       - event: push
         branch: main
+    environment:
+      GITHUB_TOKEN:
+        from_secret: github_token
     commands:
       - apt-get update && apt-get install -y curl git
       - curl -sL https://github.com/cocogitto/cocogitto/releases/download/6.2.0/cocogitto-6.2.0-x86_64-unknown-linux-musl.tar.gz | tar xz -C /tmp
@@ -58,17 +71,17 @@ steps:
       - git config --global user.email "ci@woodpecker.local"
       - git config --global user.name "Woodpecker CI"
       - git config --global --add safe.directory /woodpecker/src/github.com/barryw/paperless-webdav
-      - cog bump --auto || echo "No version bump needed"
+      # Configure git to use token for pushing
+      - git remote set-url origin https://x-access-token:${GITHUB_TOKEN}@github.com/barryw/paperless-webdav.git
+      - cog bump --auto --skip-ci-override "[skip ci]" || echo "No version bump needed"
     depends_on: [test]
 
   # ============================================
-  # Docker Build & Push to GHCR (using kaniko - no privileged mode)
+  # Docker Build & Push to GHCR (tag events only)
   # ============================================
   docker-build:
     image: gcr.io/kaniko-project/executor:debug
     when:
-      - event: push
-        branch: main
       - event: tag
     environment:
       GHCR_TOKEN:
@@ -76,11 +89,10 @@ steps:
     commands:
       - mkdir -p /kaniko/.docker
       - echo "{\"auths\":{\"ghcr.io\":{\"username\":\"barryw\",\"password\":\"$GHCR_TOKEN\"}}}" > /kaniko/.docker/config.json
-      - /kaniko/executor --dockerfile=Dockerfile --context=. --destination=ghcr.io/barryw/paperless-webdav:${CI_COMMIT_TAG:-${CI_COMMIT_SHA:0:8}}
-    depends_on: [version-bump]
+      - /kaniko/executor --dockerfile=Dockerfile --context=. --destination=ghcr.io/barryw/paperless-webdav:${CI_COMMIT_TAG}
 
   # ============================================
-  # Create GitHub Release (tags only)
+  # Create GitHub Release (tag events only)
   # ============================================
   github-release:
     image: ghcr.io/woodpeckerci/plugin-github-release:latest
@@ -91,21 +103,18 @@ steps:
         from_secret: github_token
       files: []
       title: ${CI_COMMIT_TAG}
-      note: "Release ${CI_COMMIT_TAG}"
+      generate_release_notes: true
     depends_on: [docker-build]
 
   # ============================================
-  # Deploy to Kubernetes (uses in-cluster service account)
+  # Deploy to Kubernetes (tag events only)
   # ============================================
   deploy:
     image: bitnami/kubectl:latest
     when:
-      - event: push
-        branch: main
       - event: tag
     commands:
-      - export IMAGE_TAG="${CI_COMMIT_TAG:-${CI_COMMIT_SHA:0:8}}"
-      - echo "Deploying image tag $IMAGE_TAG"
-      - kubectl -n default set image deployment/paperless-webdav paperless-webdav=ghcr.io/barryw/paperless-webdav:$IMAGE_TAG
+      - echo "Deploying version ${CI_COMMIT_TAG}"
+      - kubectl -n default set image deployment/paperless-webdav paperless-webdav=ghcr.io/barryw/paperless-webdav:${CI_COMMIT_TAG}
       - kubectl -n default rollout status deployment/paperless-webdav --timeout=300s
     depends_on: [docker-build]
