@@ -14,12 +14,29 @@ from paperless_webdav.logging import get_logger
 logger = get_logger(__name__)
 
 
+def _is_macos_client(user_agent: str) -> bool:
+    """Check if the User-Agent indicates a macOS WebDAV client.
+
+    Args:
+        user_agent: The HTTP User-Agent header value
+
+    Returns:
+        True if this appears to be a macOS client (Finder/WebDAVFS)
+    """
+    macos_indicators = ("WebDAVFS", "Darwin", "macOS", "Mac OS")
+    return any(indicator in user_agent for indicator in macos_indicators)
+
+
 class NoCacheMiddleware:
-    """WSGI middleware that adds Cache-Control headers to prevent caching.
+    """WSGI middleware that adds Cache-Control headers for macOS clients.
 
     macOS WebDAV client (Finder) caches responses aggressively, which can cause
     stale or truncated files to be served from cache. This middleware adds
-    Cache-Control: no-store to all responses to prevent this.
+    Cache-Control: no-store to responses for macOS clients to prevent this.
+
+    Windows WebDAV client (MiniRedir) needs caching to work reliably - without
+    it, files may not fully download before applications try to open them,
+    causing intermittent failures. So we only apply no-cache for macOS.
     """
 
     def __init__(self, app: ABCCallable[..., Iterable[bytes]]) -> None:
@@ -30,14 +47,18 @@ class NoCacheMiddleware:
         environ: dict[str, Any],
         start_response: ABCCallable[..., Any],
     ) -> Iterable[bytes]:
+        user_agent = environ.get("HTTP_USER_AGENT", "")
+        is_macos = _is_macos_client(user_agent)
+
         def custom_start_response(
             status: str,
             response_headers: list[tuple[str, str]],
             exc_info: Any = None,
         ) -> Any:
-            # Add cache control headers
-            response_headers.append(("Cache-Control", "no-store, no-cache, must-revalidate"))
-            response_headers.append(("Pragma", "no-cache"))
+            # Only add no-cache headers for macOS clients
+            if is_macos:
+                response_headers.append(("Cache-Control", "no-store, no-cache, must-revalidate"))
+                response_headers.append(("Pragma", "no-cache"))
             return start_response(status, response_headers, exc_info)
 
         return self._app(environ, custom_start_response)

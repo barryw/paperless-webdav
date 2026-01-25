@@ -4,7 +4,12 @@
 from unittest.mock import MagicMock, patch
 
 from paperless_webdav.webdav_auth import PaperlessBasicAuthenticator
-from paperless_webdav.webdav_server import create_webdav_app, WebDAVServer
+from paperless_webdav.webdav_server import (
+    create_webdav_app,
+    NoCacheMiddleware,
+    WebDAVServer,
+    _is_macos_client,
+)
 
 
 class TestCreateWebdavApp:
@@ -312,3 +317,95 @@ class TestWebDAVServerProperties:
                 )
 
                 assert server._server is mock_server_instance
+
+
+class TestIsMacosClient:
+    """Tests for _is_macos_client helper function."""
+
+    def test_detects_webdavfs_client(self):
+        """Should detect macOS WebDAVFS client."""
+        assert _is_macos_client("WebDAVFS/3.0.0 Darwin/23.0.0") is True
+
+    def test_detects_darwin_in_user_agent(self):
+        """Should detect Darwin in User-Agent."""
+        assert _is_macos_client("Some Client Darwin/21.0") is True
+
+    def test_detects_macos_in_user_agent(self):
+        """Should detect macOS in User-Agent."""
+        assert _is_macos_client("Mozilla/5.0 (macOS; Intel)") is True
+
+    def test_does_not_match_windows_client(self):
+        """Should not match Windows WebDAV MiniRedir."""
+        assert _is_macos_client("Microsoft-WebDAV-MiniRedir/10.0.26200") is False
+
+    def test_does_not_match_empty_user_agent(self):
+        """Should not match empty User-Agent."""
+        assert _is_macos_client("") is False
+
+    def test_does_not_match_generic_client(self):
+        """Should not match generic HTTP client."""
+        assert _is_macos_client("curl/7.88.0") is False
+
+
+class TestNoCacheMiddleware:
+    """Tests for NoCacheMiddleware WSGI middleware."""
+
+    def test_adds_no_cache_headers_for_macos_client(self):
+        """Should add no-cache headers for macOS WebDAV clients."""
+        captured_headers = []
+
+        def mock_app(environ, start_response):
+            start_response("200 OK", [("Content-Type", "text/plain")])
+            return [b"test"]
+
+        def mock_start_response(status, headers, exc_info=None):
+            captured_headers.extend(headers)
+
+        middleware = NoCacheMiddleware(mock_app)
+        environ = {"HTTP_USER_AGENT": "WebDAVFS/3.0.0 Darwin/23.0.0"}
+
+        list(middleware(environ, mock_start_response))
+
+        header_names = [h[0] for h in captured_headers]
+        assert "Cache-Control" in header_names
+        assert "Pragma" in header_names
+
+    def test_no_cache_headers_for_windows_client(self):
+        """Should NOT add no-cache headers for Windows WebDAV clients."""
+        captured_headers = []
+
+        def mock_app(environ, start_response):
+            start_response("200 OK", [("Content-Type", "text/plain")])
+            return [b"test"]
+
+        def mock_start_response(status, headers, exc_info=None):
+            captured_headers.extend(headers)
+
+        middleware = NoCacheMiddleware(mock_app)
+        environ = {"HTTP_USER_AGENT": "Microsoft-WebDAV-MiniRedir/10.0.26200"}
+
+        list(middleware(environ, mock_start_response))
+
+        header_names = [h[0] for h in captured_headers]
+        assert "Cache-Control" not in header_names
+        assert "Pragma" not in header_names
+
+    def test_no_cache_headers_without_user_agent(self):
+        """Should NOT add no-cache headers when User-Agent is missing."""
+        captured_headers = []
+
+        def mock_app(environ, start_response):
+            start_response("200 OK", [("Content-Type", "text/plain")])
+            return [b"test"]
+
+        def mock_start_response(status, headers, exc_info=None):
+            captured_headers.extend(headers)
+
+        middleware = NoCacheMiddleware(mock_app)
+        environ = {}  # No User-Agent
+
+        list(middleware(environ, mock_start_response))
+
+        header_names = [h[0] for h in captured_headers]
+        assert "Cache-Control" not in header_names
+        assert "Pragma" not in header_names
