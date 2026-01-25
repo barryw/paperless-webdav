@@ -17,8 +17,8 @@ spec:
     spec:
       containers:
         - name: paperless-webdav
-          image: paperless-webdav:latest
-          imagePullPolicy: Never
+          image: ghcr.io/barryw/paperless-webdav:latest
+          imagePullPolicy: Always
           ports:
             - containerPort: 8080
               name: admin
