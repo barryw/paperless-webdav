@@ -157,7 +157,7 @@ class TestOIDCModeTokenLoading:
     """Tests for loading token from DB in OIDC mode."""
 
     def test_loads_token_from_db_in_oidc_mode(self, mock_oidc_settings):
-        """In OIDC mode, authenticator should load token from DB using username as password."""
+        """In OIDC mode, authenticator should load token from DB using token as password."""
         from paperless_webdav.config import get_settings
 
         settings = get_settings()
@@ -167,18 +167,17 @@ class TestOIDCModeTokenLoading:
             encryption_key=settings.encryption_key.get_secret_value(),
         )
 
-        with patch("paperless_webdav.webdav_auth.run_async") as mock_run:
-            # Return token from DB lookup
-            mock_run.return_value = "db-stored-token"
+        # Mock _load_token_from_db to return a token
+        with patch.object(auth, "_load_token_from_db", return_value="db-stored-token"):
             environ = {}
-
-            result = auth.basic_auth_user("realm", "barry", "barry", environ)
+            # In OIDC mode without LDAP, password must match the DB token
+            result = auth.basic_auth_user("realm", "barry", "db-stored-token", environ)
 
             assert result == "barry"
             assert environ["paperless.token"] == "db-stored-token"
 
-    def test_oidc_mode_falls_back_to_paperless_auth_if_no_db_token(self, mock_oidc_settings):
-        """In OIDC mode, if no DB token, should fall back to Paperless auth."""
+    def test_oidc_mode_returns_false_if_password_mismatch(self, mock_oidc_settings):
+        """In OIDC mode without LDAP, password must match DB token."""
         from paperless_webdav.config import get_settings
 
         settings = get_settings()
@@ -188,24 +187,13 @@ class TestOIDCModeTokenLoading:
             encryption_key=settings.encryption_key.get_secret_value(),
         )
 
-        call_count = 0
-
-        def mock_run_impl(coro):
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                # First call: DB lookup returns None
-                return None
-            else:
-                # Second call: Paperless auth succeeds
-                return ("paperless-token", None)
-
-        with patch("paperless_webdav.webdav_auth.run_async", side_effect=mock_run_impl):
+        # Mock _load_token_from_db to return a token
+        with patch.object(auth, "_load_token_from_db", return_value="db-stored-token"):
             environ = {}
-            result = auth.basic_auth_user("realm", "barry", "secret", environ)
+            # Password doesn't match DB token
+            result = auth.basic_auth_user("realm", "barry", "wrong-password", environ)
 
-            assert result == "barry"
-            assert environ["paperless.token"] == "paperless-token"
+            assert result is False
 
     def test_paperless_mode_does_not_check_db(self, mock_settings):
         """In paperless mode, should not attempt DB token lookup."""

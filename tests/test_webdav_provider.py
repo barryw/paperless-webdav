@@ -1,7 +1,6 @@
 # tests/test_webdav_provider.py
 """Tests for the WebDAV provider."""
 
-from datetime import datetime
 from io import BytesIO
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
