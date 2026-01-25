@@ -1,5 +1,12 @@
 FROM python:3.12-slim
 
+# OCI image labels (static)
+LABEL org.opencontainers.image.title="paperless-webdav"
+LABEL org.opencontainers.image.source="https://github.com/barryw/paperless-webdav"
+LABEL org.opencontainers.image.licenses="MIT"
+LABEL org.opencontainers.image.vendor="barryw"
+# Dynamic labels (version, description, created) are added at build time by CI
+
 WORKDIR /app
 
 # Install system dependencies for python-ldap
