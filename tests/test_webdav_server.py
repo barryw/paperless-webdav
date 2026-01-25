@@ -3,6 +3,7 @@
 
 from unittest.mock import MagicMock, patch
 
+from paperless_webdav.webdav_auth import PaperlessBasicAuthenticator
 from paperless_webdav.webdav_server import create_webdav_app, WebDAVServer
 
 
@@ -38,38 +39,47 @@ class TestCreateWebdavApp:
                     assert call_kwargs["paperless_url"] == "http://paperless.test"
 
     def test_creates_basic_authenticator(self, mock_settings):
-        """Should create a PaperlessBasicAuthenticator with paperless_url."""
-        with patch("paperless_webdav.webdav_server.PaperlessBasicAuthenticator") as mock_auth:
-            with patch("paperless_webdav.webdav_server.PaperlessProvider"):
-                with patch("paperless_webdav.webdav_server.WsgiDAVApp"):
-                    create_webdav_app(
-                        paperless_url="http://paperless.test",
-                        share_loader=lambda: {},
-                    )
+        """Should create a PaperlessBasicAuthenticator subclass with paperless_url."""
+        with patch("paperless_webdav.webdav_server.PaperlessProvider"):
+            with patch("paperless_webdav.webdav_server.WsgiDAVApp") as mock_app:
+                create_webdav_app(
+                    paperless_url="http://paperless.test",
+                    share_loader=lambda: {},
+                )
 
-                    mock_auth.assert_called_once_with(
-                        "http://paperless.test",
-                        auth_mode="paperless",
-                        encryption_key=None,
-                    )
+                # Check the config passed to WsgiDAVApp
+                config = mock_app.call_args[0][0]
+                auth_class = config["http_authenticator"]["domain_controller"]
+
+                # Should be a subclass of PaperlessBasicAuthenticator
+                assert issubclass(auth_class, PaperlessBasicAuthenticator)
+
+                # When instantiated, should pass correct params to parent
+                instance = auth_class(None, {})
+                assert instance._paperless_url == "http://paperless.test"
+                assert instance._auth_mode == "paperless"
+                assert instance._encryption_key is None
 
     def test_creates_authenticator_with_oidc_mode(self, mock_settings):
         """Should pass auth_mode and encryption_key to authenticator for OIDC."""
-        with patch("paperless_webdav.webdav_server.PaperlessBasicAuthenticator") as mock_auth:
-            with patch("paperless_webdav.webdav_server.PaperlessProvider"):
-                with patch("paperless_webdav.webdav_server.WsgiDAVApp"):
-                    create_webdav_app(
-                        paperless_url="http://paperless.test",
-                        share_loader=lambda: {},
-                        auth_mode="oidc",
-                        encryption_key="test-encryption-key",
-                    )
+        with patch("paperless_webdav.webdav_server.PaperlessProvider"):
+            with patch("paperless_webdav.webdav_server.WsgiDAVApp") as mock_app:
+                create_webdav_app(
+                    paperless_url="http://paperless.test",
+                    share_loader=lambda: {},
+                    auth_mode="oidc",
+                    encryption_key="test-encryption-key",
+                )
 
-                    mock_auth.assert_called_once_with(
-                        "http://paperless.test",
-                        auth_mode="oidc",
-                        encryption_key="test-encryption-key",
-                    )
+                # Check the config passed to WsgiDAVApp
+                config = mock_app.call_args[0][0]
+                auth_class = config["http_authenticator"]["domain_controller"]
+
+                # When instantiated, should pass correct params to parent
+                instance = auth_class(None, {})
+                assert instance._paperless_url == "http://paperless.test"
+                assert instance._auth_mode == "oidc"
+                assert instance._encryption_key == "test-encryption-key"
 
     def test_stores_share_loader_in_config(self, mock_settings):
         """Should store share_loader in config for request handlers."""

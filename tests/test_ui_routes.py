@@ -30,8 +30,17 @@ def auth_cookie(mock_settings):
 
 @pytest.fixture
 def mock_db_session():
-    """Create a mock database session."""
-    return MagicMock()
+    """Create a mock database session with async methods."""
+    session = MagicMock()
+    # Mock execute to return an async-compatible result
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = None  # No existing user
+    mock_result.scalars.return_value.all.return_value = []
+    session.execute = AsyncMock(return_value=mock_result)
+    session.commit = AsyncMock()
+    session.flush = AsyncMock()
+    session.refresh = AsyncMock()
+    return session
 
 
 @pytest.fixture

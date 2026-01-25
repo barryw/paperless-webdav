@@ -34,7 +34,7 @@ steps:
     environment:
       PAPERLESS_URL: http://paperless.test
       DATABASE_URL: postgresql://test:test@localhost/test
-      ENCRYPTION_KEY: dGVzdGtleXRoYXRpczMyYnl0ZXNsb25nIQ==
+      ENCRYPTION_KEY: aa8D7QnZUqkFGBniEyIfESXitQUijPhSjQZLIqltUy4=
       SECRET_KEY: test-secret-key-for-sessions
     commands:
       - apt-get update && apt-get install -y gcc libldap2-dev libsasl2-dev

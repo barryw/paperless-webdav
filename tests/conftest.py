@@ -37,7 +37,7 @@ def mock_settings():
         {
             "PAPERLESS_URL": "http://paperless.test",
             "DATABASE_URL": "postgresql://test:test@localhost/test",
-            "ENCRYPTION_KEY": "dGVzdGtleXRoYXRpczMyYnl0ZXNsb25nIQ==",
+            "ENCRYPTION_KEY": "aa8D7QnZUqkFGBniEyIfESXitQUijPhSjQZLIqltUy4=",
             "SECRET_KEY": "test-secret-key-for-sessions",
         },
     ):
@@ -54,7 +54,7 @@ def mock_oidc_settings():
         {
             "PAPERLESS_URL": "http://paperless.test",
             "DATABASE_URL": "postgresql://test:test@localhost/test",
-            "ENCRYPTION_KEY": "dGVzdGtleXRoYXRpczMyYnl0ZXNsb25nIQ==",
+            "ENCRYPTION_KEY": "aa8D7QnZUqkFGBniEyIfESXitQUijPhSjQZLIqltUy4=",
             "SECRET_KEY": "test-secret-key-for-sessions",
             "AUTH_MODE": "oidc",
             "OIDC_ISSUER": "https://auth.example.com",

@@ -52,15 +52,21 @@ class TestLoadSharesSync:
         """load_shares_sync should fetch shares from database and return dict."""
         from paperless_webdav.main import load_shares_sync
 
-        with patch("paperless_webdav.main.run_async") as mock_run:
-            # Create mock shares with name attribute
-            mock_share1 = MagicMock()
-            mock_share1.name = "tax2025"
-            mock_share2 = MagicMock()
-            mock_share2.name = "receipts"
+        # Create mock shares with name attribute
+        mock_share1 = MagicMock()
+        mock_share1.name = "tax2025"
+        mock_share2 = MagicMock()
+        mock_share2.name = "receipts"
 
-            mock_run.return_value = [mock_share1, mock_share2]
+        # Mock the session and query result
+        mock_session = MagicMock()
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = [mock_share1, mock_share2]
+        mock_session.execute.return_value = mock_result
+        mock_session.__enter__ = MagicMock(return_value=mock_session)
+        mock_session.__exit__ = MagicMock(return_value=False)
 
+        with patch("paperless_webdav.main.get_sync_session", return_value=mock_session):
             shares = load_shares_sync()
 
             assert "tax2025" in shares
@@ -72,9 +78,15 @@ class TestLoadSharesSync:
         """load_shares_sync should return empty dict when no shares exist."""
         from paperless_webdav.main import load_shares_sync
 
-        with patch("paperless_webdav.main.run_async") as mock_run:
-            mock_run.return_value = []
+        # Mock the session and query result
+        mock_session = MagicMock()
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = []
+        mock_session.execute.return_value = mock_result
+        mock_session.__enter__ = MagicMock(return_value=mock_session)
+        mock_session.__exit__ = MagicMock(return_value=False)
 
+        with patch("paperless_webdav.main.get_sync_session", return_value=mock_session):
             shares = load_shares_sync()
 
             assert shares == {}

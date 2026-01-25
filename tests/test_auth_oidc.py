@@ -100,7 +100,7 @@ class TestOidcLogin:
         ) as client:
             response = await client.get("/auth/login", follow_redirects=False)
 
-        assert response.status_code == 307  # Temporary redirect
+        assert response.status_code == 307  # Temporary redirect to login page
         assert response.headers["location"] == "/ui/login"
 
 
@@ -134,7 +134,7 @@ class TestOidcCallback:
                 )
 
         # Should redirect to token-setup page
-        assert response.status_code == 307
+        assert response.status_code == 303  # See Other - appropriate for POST-redirect-GET
         assert response.headers["location"] == "/ui/token-setup"
 
         # Should set session cookie
@@ -166,7 +166,7 @@ class TestOidcCallback:
                 )
 
         # Should still succeed with sub as username
-        assert response.status_code == 307
+        assert response.status_code == 303  # See Other - appropriate for POST-redirect-GET
         assert response.headers["location"] == "/ui/token-setup"
         assert "session" in response.cookies
 
@@ -188,7 +188,7 @@ class TestOidcCallback:
                     follow_redirects=False,
                 )
 
-        assert response.status_code == 307
+        assert response.status_code == 307  # Temporary redirect on error
         assert "/ui/login" in response.headers["location"]
         assert "error=auth_failed" in response.headers["location"]
 
@@ -216,7 +216,7 @@ class TestOidcCallback:
                     follow_redirects=False,
                 )
 
-        assert response.status_code == 307
+        assert response.status_code == 307  # Temporary redirect on error
         assert "/ui/login" in response.headers["location"]
         assert "error=no_username" in response.headers["location"]
 
