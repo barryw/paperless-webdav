@@ -70,7 +70,9 @@ steps:
       - event: push
         branch: main
       - event: tag
-    secrets: [ghcr_token]
+    environment:
+      GHCR_TOKEN:
+        from_secret: ghcr_token
     commands:
       - mkdir -p /kaniko/.docker
       - echo "{\"auths\":{\"ghcr.io\":{\"username\":\"barryw\",\"password\":\"$GHCR_TOKEN\"}}}" > /kaniko/.docker/config.json
