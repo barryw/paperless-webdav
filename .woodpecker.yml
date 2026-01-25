@@ -1,6 +1,6 @@
 # Woodpecker CI Pipeline for paperless-webdav
 #
-# Push to main: CI → version-bump → docker-build → github-release → deploy
+# Push to main: CI → release (version bump + GitHub release) → docker-build → deploy
 # PR: CI only
 
 labels:
@@ -46,9 +46,9 @@ steps:
     depends_on: [typecheck]
 
   # ============================================
-  # Version Bump - creates semver tag, outputs to file
+  # Release - version bump + GitHub release
   # ============================================
-  version-bump:
+  release:
     image: python:3.12-slim
     when:
       - event: push
@@ -58,17 +58,34 @@ steps:
         from_secret: github_token
     commands:
       - apt-get update && apt-get install -y curl git
+      # Install cog and gh
       - curl -sL https://github.com/cocogitto/cocogitto/releases/download/6.2.0/cocogitto-6.2.0-x86_64-unknown-linux-musl.tar.gz | tar xz -C /tmp
       - mv /tmp/x86_64-unknown-linux-musl/cog /usr/local/bin/
+      - curl -sL https://github.com/cli/cli/releases/download/v2.63.2/gh_2.63.2_linux_amd64.tar.gz | tar xz -C /tmp
+      - mv /tmp/gh_2.63.2_linux_amd64/bin/gh /usr/local/bin/
+      # Configure git
       - git config --global user.email "ci@woodpecker.local"
       - git config --global user.name "Woodpecker CI"
       - git config --global --add safe.directory "$CI_WORKSPACE"
       - git remote set-url origin "https://x-access-token:$GITHUB_TOKEN@github.com/$CI_REPO.git"
-      # Get current version or bump
-      - 'cog bump --auto && git push --tags && echo "BUMPED=true" || echo "BUMPED=false"'
-      # Write the latest tag to a file for subsequent steps
-      - 'git describe --tags --abbrev=0 > /woodpecker/version.txt || echo "v0.0.0" > /woodpecker/version.txt'
-      - 'echo "Version: $(cat /woodpecker/version.txt)"'
+      - git fetch --tags
+      # Check for version bump
+      - echo "=== Checking for Version Bump ==="
+      - 'LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "0.0.0") && echo "Latest tag: $LATEST_TAG"'
+      - 'cog check --from-latest-tag 2>/dev/null || echo "Warning - Some commits may not follow conventional commit format"'
+      - 'BUMP_TYPE=$(cog bump --dry-run 2>&1 | grep -oE "(major|minor|patch)" | head -1 || true)'
+      - 'test -n "$BUMP_TYPE" || { echo "No version bump needed"; echo "0.0.0" > /woodpecker/version.txt; exit 0; }'
+      - 'echo "Bump type: $BUMP_TYPE"'
+      # Bump version
+      - 'cog bump --$BUMP_TYPE'
+      - 'NEW_TAG=$(git describe --tags --abbrev=0)'
+      - 'echo "New version: $NEW_TAG"'
+      - 'git push origin $NEW_TAG'
+      - 'echo "$NEW_TAG" > /woodpecker/version.txt'
+      # Create GitHub release
+      - 'RELEASE_NOTES=$(cog changelog --at $NEW_TAG 2>/dev/null || echo "Release $NEW_TAG")'
+      - 'gh release create $NEW_TAG --title "paperless-webdav $NEW_TAG" --notes "$RELEASE_NOTES" --latest'
+      - echo "=== Release Created ==="
     depends_on: [test]
 
   # ============================================
@@ -83,36 +100,13 @@ steps:
       GHCR_TOKEN:
         from_secret: ghcr_token
     commands:
+      - 'VERSION=$(cat /woodpecker/version.txt 2>/dev/null || echo "0.0.0")'
+      - 'test "$VERSION" != "0.0.0" || { echo "No new version, skipping build"; exit 0; }'
       - mkdir -p /kaniko/.docker
       - 'echo "{\"auths\":{\"ghcr.io\":{\"username\":\"barryw\",\"password\":\"$GHCR_TOKEN\"}}}" > /kaniko/.docker/config.json'
-      - 'VERSION=$(cat /woodpecker/version.txt)'
       - 'echo "Building image: ghcr.io/barryw/paperless-webdav:$VERSION"'
       - '/kaniko/executor --dockerfile=Dockerfile --context=. --destination=ghcr.io/barryw/paperless-webdav:$VERSION'
-    depends_on: [version-bump]
-
-  # ============================================
-  # Create GitHub Release
-  # ============================================
-  github-release:
-    image: python:3.12-slim
-    when:
-      - event: push
-        branch: main
-    environment:
-      GITHUB_TOKEN:
-        from_secret: github_token
-    commands:
-      - apt-get update && apt-get install -y curl
-      - 'VERSION=$(cat /woodpecker/version.txt)'
-      - 'echo "Creating release for $VERSION"'
-      - |
-        curl -X POST \
-          -H "Authorization: token $GITHUB_TOKEN" \
-          -H "Accept: application/vnd.github.v3+json" \
-          "https://api.github.com/repos/$CI_REPO/releases" \
-          -d "{\"tag_name\":\"$VERSION\",\"name\":\"$VERSION\",\"generate_release_notes\":true}" \
-          || echo "Release may already exist"
-    depends_on: [docker-build]
+    depends_on: [release]
 
   # ============================================
   # Deploy to Kubernetes
@@ -123,7 +117,8 @@ steps:
       - event: push
         branch: main
     commands:
-      - 'VERSION=$(cat /woodpecker/version.txt)'
+      - 'VERSION=$(cat /woodpecker/version.txt 2>/dev/null || echo "0.0.0")'
+      - 'test "$VERSION" != "0.0.0" || { echo "No new version, skipping deploy"; exit 0; }'
       - 'echo "Deploying version: $VERSION"'
       - 'kubectl -n default set image deployment/paperless-webdav paperless-webdav=ghcr.io/barryw/paperless-webdav:$VERSION'
       - 'kubectl -n default rollout status deployment/paperless-webdav --timeout=300s'
