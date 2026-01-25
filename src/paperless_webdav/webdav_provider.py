@@ -1333,7 +1333,8 @@ class DocumentResource(DAVNonCollection):  # type: ignore[misc]
         if self._is_move_from_done_folder_to_root(dest_path):
             if self._handle_move_from_done_folder():
                 return True
-            raise DAVError(HTTP_FORBIDDEN, "Failed to move from done folder")
+            # Gracefully degrade if no client available (already logged)
+            return False
 
         # No-op for other moves (same location)
         logger.debug(
@@ -1389,7 +1390,8 @@ class DocumentResource(DAVNonCollection):  # type: ignore[misc]
         if self._is_move_from_done_folder_to_root(dest_path):
             if self._handle_move_from_done_folder():
                 return True
-            raise DAVError(HTTP_FORBIDDEN, "Failed to move from done folder")
+            # Gracefully degrade if no client available (already logged)
+            return False
 
         # No-op for other moves (same location)
         logger.debug(

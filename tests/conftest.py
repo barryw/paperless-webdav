@@ -3,7 +3,24 @@
 import pytest
 from unittest.mock import patch
 
+from paperless_webdav.cache import get_cache
 from paperless_webdav.config import get_settings
+
+
+@pytest.fixture(autouse=True)
+def clear_document_cache():
+    """Clear document cache before and after each test to prevent pollution."""
+    cache = get_cache()
+    try:
+        cache.clear()
+    except ValueError:
+        # Ignore I/O errors from logging when stdout is captured/closed
+        pass
+    yield
+    try:
+        cache.clear()
+    except ValueError:
+        pass
 
 
 @pytest.fixture

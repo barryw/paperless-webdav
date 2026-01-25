@@ -312,7 +312,9 @@ async def test_remove_tag_from_document(client: PaperlessClient, base_url: str) 
 @pytest.mark.asyncio
 async def test_validate_token_success(client: PaperlessClient, base_url: str) -> None:
     """Valid token returns True."""
-    respx.get(f"{base_url}/api/").mock(return_value=Response(200, json={}))
+    respx.get(f"{base_url}/api/tags/").mock(
+        return_value=Response(200, json={"count": 0, "results": []})
+    )
 
     result = await client.validate_token()
 
@@ -323,7 +325,9 @@ async def test_validate_token_success(client: PaperlessClient, base_url: str) ->
 @pytest.mark.asyncio
 async def test_validate_token_failure(client: PaperlessClient, base_url: str) -> None:
     """401 response returns False."""
-    respx.get(f"{base_url}/api/").mock(return_value=Response(401, json={"detail": "Invalid token"}))
+    respx.get(f"{base_url}/api/tags/").mock(
+        return_value=Response(401, json={"detail": "Invalid token"})
+    )
 
     result = await client.validate_token()
 
@@ -334,7 +338,9 @@ async def test_validate_token_failure(client: PaperlessClient, base_url: str) ->
 @pytest.mark.asyncio
 async def test_authorization_header(client: PaperlessClient, base_url: str) -> None:
     """Verify authorization header is sent correctly."""
-    respx.get(f"{base_url}/api/").mock(return_value=Response(200, json={}))
+    respx.get(f"{base_url}/api/tags/").mock(
+        return_value=Response(200, json={"count": 0, "results": []})
+    )
 
     await client.validate_token()
 
