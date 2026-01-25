@@ -294,6 +294,52 @@ class PaperlessClient:
                 logger.debug("get_document_size_failed", document_id=document_id, error=str(e))
         return None
 
+    async def get_document_sizes_batch(
+        self, document_ids: list[int], max_concurrent: int = 10
+    ) -> dict[int, int]:
+        """Get sizes for multiple documents concurrently.
+
+        Uses concurrent HEAD requests with a semaphore to limit parallelism.
+
+        Args:
+            document_ids: List of document IDs to fetch sizes for
+            max_concurrent: Maximum number of concurrent requests (default 10)
+
+        Returns:
+            Dict mapping document ID to size in bytes (missing entries = failed)
+        """
+        import asyncio
+
+        if not document_ids:
+            return {}
+
+        semaphore = asyncio.Semaphore(max_concurrent)
+        results: dict[int, int] = {}
+        timeout = httpx.Timeout(30.0, read=60.0)
+
+        async def fetch_size(client: httpx.AsyncClient, doc_id: int) -> None:
+            async with semaphore:
+                url = f"{self.base_url}/api/documents/{doc_id}/download/"
+                try:
+                    response = await client.head(url, headers=self._headers)
+                    response.raise_for_status()
+                    content_length = response.headers.get("Content-Length")
+                    if content_length:
+                        results[doc_id] = int(content_length)
+                except Exception as e:
+                    logger.debug("batch_get_size_failed", document_id=doc_id, error=str(e))
+
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            tasks = [fetch_size(client, doc_id) for doc_id in document_ids]
+            await asyncio.gather(*tasks)
+
+        logger.debug(
+            "batch_get_sizes_complete",
+            requested=len(document_ids),
+            successful=len(results),
+        )
+        return results
+
     async def _get_document(self, document_id: int) -> dict[str, Any]:
         """Fetch a single document's details.
 

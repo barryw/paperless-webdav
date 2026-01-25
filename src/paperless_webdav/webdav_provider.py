@@ -27,6 +27,59 @@ from paperless_webdav.cache import get_cache
 from paperless_webdav.logging import get_logger
 from paperless_webdav.paperless_client import PaperlessClient, PaperlessDocument
 
+# Type alias for clarity
+DocumentList = list[PaperlessDocument]
+
+
+def prefetch_document_sizes(
+    client: PaperlessClient, documents: DocumentList
+) -> None:
+    """Pre-fetch and cache sizes for all documents concurrently.
+
+    This issues concurrent HEAD requests for all documents to populate
+    the size cache, avoiding sequential requests during PROPFIND.
+
+    Args:
+        client: The PaperlessClient to use
+        documents: List of documents to pre-fetch sizes for
+    """
+    if not documents:
+        return
+
+    cache = get_cache()
+
+    # Filter out documents whose sizes are already cached
+    doc_ids_to_fetch = [
+        doc.id for doc in documents if cache.get_size(doc.id) is None
+    ]
+
+    if not doc_ids_to_fetch:
+        logger.debug("prefetch_all_cached", total=len(documents))
+        return
+
+    logger.debug(
+        "prefetch_starting",
+        total=len(documents),
+        to_fetch=len(doc_ids_to_fetch),
+    )
+
+    try:
+        # Fetch sizes concurrently
+        sizes = run_async(client.get_document_sizes_batch(doc_ids_to_fetch))
+
+        # Cache all fetched sizes
+        for doc_id, size in sizes.items():
+            cache.set_size(doc_id, size)
+
+        logger.debug(
+            "prefetch_complete",
+            requested=len(doc_ids_to_fetch),
+            fetched=len(sizes),
+        )
+    except Exception as e:
+        # Don't fail document listing if prefetch fails
+        logger.warning("prefetch_failed", error=str(e))
+
 if TYPE_CHECKING:
     from paperless_webdav.models import Share
 
@@ -500,6 +553,10 @@ class ShareResource(DAVCollection):  # type: ignore[misc]
                 share=self._share.name,
                 count=len(documents),
             )
+
+            # Pre-fetch all document sizes concurrently
+            prefetch_document_sizes(client, documents)
+
             return documents
 
         # Fall back to static mode
@@ -773,6 +830,10 @@ class DoneFolderResource(DAVCollection):  # type: ignore[misc]
                 share=self._share.name,
                 count=len(documents),
             )
+
+            # Pre-fetch all document sizes concurrently
+            prefetch_document_sizes(client, documents)
+
             return documents
 
         # No client available - return empty list
