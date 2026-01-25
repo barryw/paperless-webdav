@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any, Callable
 from wsgidav.dav_provider import DAVCollection, DAVNonCollection, DAVProvider  # type: ignore[import-untyped]
 
 from paperless_webdav.async_bridge import run_async
+from paperless_webdav.cache import get_cache
 from paperless_webdav.logging import get_logger
 from paperless_webdav.paperless_client import PaperlessClient, PaperlessDocument
 
@@ -432,6 +433,30 @@ class ShareResource(DAVCollection):  # type: ignore[misc]
 
         return resolved_ids
 
+    def _get_tag_map(self, client: PaperlessClient) -> dict[str, int]:
+        """Get tag name to ID mapping, using cache when possible.
+
+        Args:
+            client: The PaperlessClient to use for fetching tags
+
+        Returns:
+            Dict mapping tag names to tag IDs
+        """
+        token = self.environ.get("paperless.token", "")
+        cache = get_cache()
+
+        # Check cache first
+        cached_map = cache.get_tag_map(token)
+        if cached_map is not None:
+            return cached_map
+
+        # Fetch from API and cache
+        all_tags = run_async(client.get_tags())
+        tag_map = {tag.name: tag.id for tag in all_tags}
+        cache.set_tag_map(token, tag_map)
+        logger.debug("fetched_and_cached_tag_map", tag_count=len(tag_map))
+        return tag_map
+
     def _load_documents(self) -> list[PaperlessDocument]:
         """Load documents from Paperless API or static cache.
 
@@ -444,9 +469,8 @@ class ShareResource(DAVCollection):  # type: ignore[misc]
         # Check if we can use dynamic loading
         client = self._provider._create_client(self.environ)
         if client is not None:
-            # Fetch all tags once and build name->id map
-            all_tags = run_async(client.get_tags())
-            tag_map = {tag.name: tag.id for tag in all_tags}
+            # Get tag map (uses cache when available)
+            tag_map = self._get_tag_map(client)
 
             # Resolve tag names to IDs using the shared map
             include_tag_ids = self._resolve_tag_ids_from_map(
@@ -683,6 +707,30 @@ class DoneFolderResource(DAVCollection):  # type: ignore[misc]
 
         return resolved_ids
 
+    def _get_tag_map(self, client: PaperlessClient) -> dict[str, int]:
+        """Get tag name to ID mapping, using cache when possible.
+
+        Args:
+            client: The PaperlessClient to use for fetching tags
+
+        Returns:
+            Dict mapping tag names to tag IDs
+        """
+        token = self.environ.get("paperless.token", "")
+        cache = get_cache()
+
+        # Check cache first
+        cached_map = cache.get_tag_map(token)
+        if cached_map is not None:
+            return cached_map
+
+        # Fetch from API and cache
+        all_tags = run_async(client.get_tags())
+        tag_map = {tag.name: tag.id for tag in all_tags}
+        cache.set_tag_map(token, tag_map)
+        logger.debug("fetched_and_cached_tag_map", tag_count=len(tag_map))
+        return tag_map
+
     def _load_documents(self) -> list[PaperlessDocument]:
         """Load documents with done_tag from Paperless API.
 
@@ -691,9 +739,8 @@ class DoneFolderResource(DAVCollection):  # type: ignore[misc]
         """
         client = self._provider._create_client(self.environ)
         if client is not None:
-            # Fetch all tags once and build name->id map
-            all_tags = run_async(client.get_tags())
-            tag_map = {tag.name: tag.id for tag in all_tags}
+            # Get tag map (uses cache when available)
+            tag_map = self._get_tag_map(client)
 
             # Include tags: share's include_tags AND the done_tag
             # This ensures we only show documents that belong to this share
@@ -897,16 +944,27 @@ class DocumentResource(DAVNonCollection):  # type: ignore[misc]
     def _download_content(self) -> bytes:
         """Download document content from Paperless API.
 
+        Uses a global cache to avoid re-downloading the same document.
+
         Returns:
             Document content as bytes, or empty bytes on error
         """
         if self._content is not None:
             return self._content
 
+        # Check global cache first
+        cache = get_cache()
+        cached_content = cache.get_content(self.document.id)
+        if cached_content is not None:
+            self._content = cached_content
+            return self._content
+
         client = self._provider._create_client(self.environ)
         if client is not None:
             try:
                 self._content = run_async(client.download_document(self.document.id))
+                # Store in global cache
+                cache.set_content(self.document.id, self._content)
                 logger.debug(
                     "downloaded_document_content",
                     document_id=self.document.id,
@@ -932,17 +990,40 @@ class DocumentResource(DAVNonCollection):  # type: ignore[misc]
     def get_content_length(self) -> int | None:
         """Return the content length.
 
-        Downloads the content first to ensure consistency with get_content().
-        This avoids mismatches between HEAD request size and actual GET content.
+        Uses cached size or HEAD request when possible to avoid downloading
+        the full content just for the size.
 
         Returns:
             Content length in bytes, or None if unknown
         """
-        # Always download content first to ensure get_content_length matches get_content
+        # If we already have content loaded, use its size
+        if self._content is not None:
+            return len(self._content)
+
+        # Check cache for size
+        cache = get_cache()
+        cached_size = cache.get_size(self.document.id)
+        if cached_size is not None:
+            return cached_size
+
+        # Try HEAD request for size (fast)
+        client = self._provider._create_client(self.environ)
+        if client is not None:
+            size = run_async(client.get_document_size(self.document.id))
+            if size is not None:
+                cache.set_size(self.document.id, size)
+                logger.debug(
+                    "get_content_length_from_head",
+                    document_id=self.document.id,
+                    size=size,
+                )
+                return size
+
+        # Fall back to downloading content (slow but reliable)
         content = self._download_content()
         size = len(content)
         logger.debug(
-            "get_content_length",
+            "get_content_length_from_download",
             document_id=self.document.id,
             size=size,
         )
