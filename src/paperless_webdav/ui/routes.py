@@ -155,7 +155,6 @@ async def parse_share_form_data(request: Request) -> dict[str, Any]:
     allowed_users = form.getlist("allowed_users")
 
     # Parse checkboxes (presence = true)
-    read_only = "read_only" in form
     done_folder_enabled = "done_folder_enabled" in form
 
     # Parse datetime-local input
@@ -180,7 +179,6 @@ async def parse_share_form_data(request: Request) -> dict[str, Any]:
         "name": name,
         "include_tags": include_tags,
         "exclude_tags": exclude_tags,
-        "read_only": read_only,
         "done_folder_enabled": done_folder_enabled,
         "done_folder_name": done_folder_name,
         "done_tag": done_tag,

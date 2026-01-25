@@ -155,7 +155,6 @@ async def create_share(session: AsyncSession, username: str, share_data: ShareCr
         include_tags=share_data.include_tags,
         exclude_tags=share_data.exclude_tags,
         expires_at=share_data.expires_at,
-        read_only=share_data.read_only,
         done_folder_enabled=share_data.done_folder_enabled,
         done_folder_name=share_data.done_folder_name,
         done_tag=share_data.done_tag,

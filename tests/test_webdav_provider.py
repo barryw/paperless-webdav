@@ -42,7 +42,6 @@ def mock_share() -> MagicMock:
     share.name = "tax2025"
     share.include_tags = ["tax", "2025"]
     share.exclude_tags = ["draft"]
-    share.read_only = True
     share.done_folder_enabled = False
     share.done_folder_name = "done"
     share.done_tag = "processed"

@@ -263,7 +263,6 @@ class TestCreateShare:
         assert share.name == "new-share"
         assert share.include_tags == ["tag1"]
         assert share.exclude_tags == []
-        assert share.read_only is True
         assert share.done_folder_enabled is False
         mock_session.add.assert_called()
 
@@ -278,7 +277,6 @@ class TestCreateShare:
             include_tags=["tag1", "tag2"],
             exclude_tags=["draft"],
             expires_at=expires,
-            read_only=False,
             done_folder_enabled=True,
             done_folder_name="completed",
             done_tag="done",
@@ -292,7 +290,6 @@ class TestCreateShare:
         assert share.name == "full-share"
         assert share.include_tags == ["tag1", "tag2"]
         assert share.exclude_tags == ["draft"]
-        assert share.read_only is False
         assert share.done_folder_enabled is True
         assert share.done_folder_name == "completed"
         assert share.done_tag == "done"
@@ -331,7 +328,6 @@ class TestUpdateShare:
             name="my-share",
             owner_id=test_user.id,
             include_tags=["tag1"],
-            read_only=True,
         )
 
         mock_session.execute.return_value = mock_result_with_value(share)
@@ -339,13 +335,11 @@ class TestUpdateShare:
         share_data = ShareUpdate(
             include_tags=["updated-tag"],
             exclude_tags=["exclude-this"],
-            read_only=False,
         )
         updated = await update_share(mock_session, share.id, share_data)
 
         assert updated.include_tags == ["updated-tag"]
         assert updated.exclude_tags == ["exclude-this"]
-        assert updated.read_only is False
 
     @pytest.mark.asyncio
     async def test_does_not_update_unset_fields(self, mock_session, test_user):

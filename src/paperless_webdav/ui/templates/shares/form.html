@@ -119,22 +119,6 @@
                 </p>
             </div>
 
-            <!-- Read Only -->
-            <div class="flex items-center">
-                <input type="checkbox"
-                       id="read_only"
-                       name="read_only"
-                       value="true"
-                       {% if not share or share.read_only %}checked{% endif %}
-                       class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded">
-                <label for="read_only" class="ml-2 block text-sm text-gray-700">
-                    Read Only
-                </label>
-            </div>
-            <p class="mt-1 text-sm text-gray-500 -mt-4 ml-6">
-                Prevent file modifications through this share.
-            </p>
-
             <!-- Done Folder -->
             <div class="border-t pt-6">
                 <div class="flex items-center mb-4">

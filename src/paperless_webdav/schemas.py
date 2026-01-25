@@ -20,7 +20,6 @@ class ShareCreate(BaseModel):
     include_tags: list[str] = Field(default_factory=list, min_length=1)
     exclude_tags: list[str] = Field(default_factory=list)
     expires_at: datetime | None = None
-    read_only: bool = True
     done_folder_enabled: bool = False
     done_folder_name: str = "done"
     done_tag: str | None = None
@@ -51,7 +50,6 @@ class ShareUpdate(BaseModel):
     include_tags: list[str] | None = None
     exclude_tags: list[str] | None = None
     expires_at: datetime | None = None
-    read_only: bool | None = None
     done_folder_enabled: bool | None = None
     done_folder_name: str | None = None
     done_tag: str | None = None
@@ -68,7 +66,6 @@ class ShareResponse(BaseModel):
     include_tags: list[str]
     exclude_tags: list[str]
     expires_at: datetime | None
-    read_only: bool
     done_folder_enabled: bool
     done_folder_name: str
     done_tag: str | None

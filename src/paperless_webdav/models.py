@@ -48,7 +48,6 @@ class Share(Base):
     include_tags: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
     exclude_tags: Mapped[list[str]] = mapped_column(JSONB, default=list)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    read_only: Mapped[bool] = mapped_column(Boolean, default=True)
     done_folder_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     done_folder_name: Mapped[str] = mapped_column(String(63), default="done")
     done_tag: Mapped[str | None] = mapped_column(String(63), nullable=True)

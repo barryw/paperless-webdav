@@ -394,7 +394,6 @@ async def test_create_share_page_has_all_fields(app_with_db, auth_cookie, mock_s
     assert 'data-field="exclude_tags"' in response.text
     assert 'data-field="done_tag"' in response.text
     # Other fields are standard inputs
-    assert 'name="read_only"' in response.text
     assert 'name="done_folder_enabled"' in response.text
     assert 'name="done_folder_name"' in response.text
     assert 'name="expires_at"' in response.text
@@ -421,7 +420,6 @@ async def test_edit_share_page_renders_with_data(app_with_db, auth_cookie, mock_
     mock_share.name = "test-share"
     mock_share.include_tags = ["inbox", "documents"]
     mock_share.exclude_tags = ["private"]
-    mock_share.read_only = True
     mock_share.done_folder_enabled = True
     mock_share.done_folder_name = "processed"
     mock_share.done_tag = "done"
@@ -456,7 +454,6 @@ async def test_edit_share_page_name_field_disabled(app_with_db, auth_cookie, moc
     mock_share.name = "test-share"
     mock_share.include_tags = []
     mock_share.exclude_tags = []
-    mock_share.read_only = True
     mock_share.done_folder_enabled = False
     mock_share.done_folder_name = "done"
     mock_share.done_tag = None
@@ -837,7 +834,6 @@ async def test_create_share_form_submission(app_with_db, auth_cookie, mock_setti
                 data={
                     "name": "new-share",
                     "include_tags": ["tag1", "tag2"],
-                    "read_only": "true",
                 },
                 cookies=auth_cookie,
                 follow_redirects=False,
@@ -920,13 +916,13 @@ async def test_create_share_form_parses_checkbox(app_with_db, auth_cookie, mock_
         async with AsyncClient(
             transport=ASGITransport(app=app_with_db), base_url="http://test"
         ) as client:
-            # Submit without read_only checkbox (unchecked)
+            # Submit without done_folder_enabled checkbox (unchecked)
             response = await client.post(
                 "/ui/shares/new",
                 data={
                     "name": "checkbox-share",
                     "include_tags": ["tag1"],
-                    # Note: no read_only field = unchecked
+                    # Note: no done_folder_enabled field = unchecked
                 },
                 cookies=auth_cookie,
                 follow_redirects=False,
@@ -935,7 +931,7 @@ async def test_create_share_form_parses_checkbox(app_with_db, auth_cookie, mock_
     assert response.status_code == 303
     call_args = mock_create.call_args
     share_data = call_args[0][2]
-    assert share_data.read_only is False
+    assert share_data.done_folder_enabled is False
 
 
 @pytest.mark.asyncio
@@ -1002,7 +998,6 @@ async def test_edit_share_form_submission(app_with_db, auth_cookie, mock_setting
     mock_share.name = "existing-share"
     mock_share.include_tags = ["old-tag"]
     mock_share.exclude_tags = []
-    mock_share.read_only = True
     mock_share.done_folder_enabled = False
     mock_share.done_folder_name = "done"
     mock_share.done_tag = None
@@ -1026,7 +1021,6 @@ async def test_edit_share_form_submission(app_with_db, auth_cookie, mock_setting
                     "/ui/shares/existing-share/edit",
                     data={
                         "include_tags": ["new-tag1", "new-tag2"],
-                        "read_only": "true",
                     },
                     cookies=auth_cookie,
                     follow_redirects=False,
@@ -1083,7 +1077,6 @@ async def test_edit_share_form_validation_error(app_with_db, auth_cookie, mock_s
     mock_share.name = "test-share"
     mock_share.include_tags = ["tag1"]
     mock_share.exclude_tags = []
-    mock_share.read_only = True
     mock_share.done_folder_enabled = True
     mock_share.done_folder_name = "done"
     mock_share.done_tag = None  # This should cause validation error when enabled
@@ -1319,7 +1312,6 @@ async def test_full_share_crud_flow(app_with_db, mock_settings):
             created_share.name = "my-test-share"
             created_share.include_tags = ["inbox", "documents"]
             created_share.exclude_tags = []
-            created_share.read_only = True
             created_share.done_folder_enabled = False
             created_share.done_folder_name = "done"
             created_share.done_tag = None
@@ -1332,7 +1324,7 @@ async def test_full_share_crud_flow(app_with_db, mock_settings):
 
             response = await client.post(
                 "/ui/shares/new",
-                content="name=my-test-share&include_tags=inbox&include_tags=documents&read_only=true",
+                content="name=my-test-share&include_tags=inbox&include_tags=documents",
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
                 cookies=session_cookie,
                 follow_redirects=False,
@@ -1403,7 +1395,6 @@ async def test_full_share_crud_flow(app_with_db, mock_settings):
                 updated_share.name = "my-test-share"
                 updated_share.include_tags = ["inbox", "documents", "updated"]
                 updated_share.exclude_tags = ["private"]
-                updated_share.read_only = False
                 updated_share.done_folder_enabled = False
                 updated_share.done_folder_name = "done"
                 updated_share.done_tag = None

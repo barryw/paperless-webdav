@@ -22,6 +22,9 @@ RUN pip install uv
 # Copy project files
 COPY pyproject.toml uv.lock ./
 COPY src/ ./src/
+COPY alembic.ini ./
+COPY alembic/ ./alembic/
+COPY scripts/ ./scripts/
 
 # Install dependencies
 RUN uv sync --frozen --no-dev
@@ -29,5 +32,5 @@ RUN uv sync --frozen --no-dev
 # Expose ports
 EXPOSE 8080 8081
 
-# Run the application
-CMD ["uv", "run", "python", "-m", "paperless_webdav.main"]
+# Run migrations and start application
+CMD ["uv", "run", "python", "scripts/entrypoint.py"]
