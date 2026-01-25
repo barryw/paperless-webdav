@@ -1,0 +1,51 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: paperless-dav
+  namespace: default
+  labels:
+    app: paperless-webdav
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web,websecure
+    traefik.ingress.kubernetes.io/router.middlewares: default-redirect-https@kubernetescrd
+    cert-manager.io/cluster-issuer: internal-ca-issuer
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: paperless-dav.lan
+      http:
+        paths:
+          # Admin UI and auth routes
+          - path: /ui
+            pathType: Prefix
+            backend:
+              service:
+                name: paperless-webdav
+                port:
+                  number: 8080
+          - path: /auth
+            pathType: Prefix
+            backend:
+              service:
+                name: paperless-webdav
+                port:
+                  number: 8080
+          - path: /static
+            pathType: Prefix
+            backend:
+              service:
+                name: paperless-webdav
+                port:
+                  number: 8080
+          # WebDAV for everything else
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: paperless-webdav
+                port:
+                  number: 8081
+  tls:
+    - hosts:
+        - paperless-dav.lan
+      secretName: paperless-dav-lan-tls

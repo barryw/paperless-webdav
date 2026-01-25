@@ -218,6 +218,24 @@ async def get_current_user_optional(
     return user
 
 
+def get_session_user(
+    session: Annotated[str | None, Cookie()] = None,
+    settings: Annotated[Settings, Depends(get_settings)] = None,  # type: ignore[assignment]
+) -> AuthenticatedUser | None:
+    """Get user from session without requiring a Paperless token.
+
+    Used for token-setup page where user has logged in via OIDC but
+    hasn't set up their Paperless token yet.
+
+    Returns AuthenticatedUser with potentially empty token, or None if
+    no valid session.
+    """
+    if settings is None:
+        settings = get_settings()
+
+    return _validate_session(session or "", settings)
+
+
 @router.post("/login", response_model=UserResponse)
 async def login(
     credentials: LoginRequest,
@@ -254,6 +272,7 @@ async def login(
         samesite="lax",
         secure=settings.cookie_secure,
         max_age=settings.session_expiry_hours * 3600,
+        path="/",
     )
 
     logger.info("login_success", username=credentials.username)

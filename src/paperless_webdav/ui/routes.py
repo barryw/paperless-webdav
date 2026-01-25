@@ -15,6 +15,7 @@ from paperless_webdav.auth.paperless import (
     _authenticate_with_paperless,
     _create_session,
     get_current_user_optional,
+    get_session_user,
 )
 from paperless_webdav.config import Settings, get_settings
 from paperless_webdav.dependencies import get_db_session
@@ -26,6 +27,7 @@ from paperless_webdav.services.shares import (
     delete_share,
     get_share_by_name,
     get_user_shares,
+    store_user_token,
     update_share,
 )
 
@@ -426,14 +428,16 @@ async def logout(
 @router.get("/token-setup", response_class=HTMLResponse, response_model=None)
 async def token_setup_page(
     request: Request,
-    current_user: Annotated[AuthenticatedUser | None, Depends(get_current_user_optional)],
+    session_user: Annotated[AuthenticatedUser | None, Depends(get_session_user)],
 ) -> HTMLResponse | RedirectResponse:
     """Render the token setup page.
 
-    Requires authentication - redirects to login if not authenticated.
+    Requires a valid session (username) - redirects to login if not authenticated.
     This page allows OIDC users to enter their Paperless API token.
     """
-    if current_user is None:
+    logger.info("token_setup_page", cookies=dict(request.cookies), session_user=session_user)
+
+    if session_user is None:
         return RedirectResponse(url="/ui/login", status_code=303)
 
     return templates.TemplateResponse(
@@ -447,14 +451,15 @@ async def token_setup_page(
 async def token_setup_submit(
     request: Request,
     token: Annotated[str, Form()] = "",
-    current_user: Annotated[AuthenticatedUser | None, Depends(get_current_user_optional)] = None,
+    session_user: Annotated[AuthenticatedUser | None, Depends(get_session_user)] = None,
     settings: Annotated[Settings, Depends(get_settings)] = None,
+    session: Annotated[AsyncSession, Depends(get_db_session)] = None,
 ) -> HTMLResponse | RedirectResponse:
     """Handle token setup form submission.
 
     Validates the provided Paperless API token and updates the session.
     """
-    if current_user is None:
+    if session_user is None:
         return RedirectResponse(url="/ui/login", status_code=303)
 
     # Check for empty token
@@ -484,8 +489,16 @@ async def token_setup_submit(
             context={"error": "Invalid API token"},
         )
 
-    # Token is valid - create new session with the token
-    session_value = _create_session(current_user.username, token, settings)
+    # Token is valid - store it in the database for WebDAV auth
+    await store_user_token(
+        session,
+        session_user.username,
+        token,
+        settings.encryption_key.get_secret_value(),
+    )
+
+    # Create new session with the token
+    session_value = _create_session(session_user.username, token, settings)
     response = RedirectResponse(url="/ui/shares", status_code=303)
     response.set_cookie(
         key="session",
@@ -494,9 +507,10 @@ async def token_setup_submit(
         samesite="lax",
         secure=settings.cookie_secure,
         max_age=settings.session_expiry_hours * 3600,
+        path="/",
     )
 
-    logger.info("token_setup_success", username=current_user.username)
+    logger.info("token_setup_success", username=session_user.username)
     return response
 
 

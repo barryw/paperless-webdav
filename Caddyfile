@@ -1,0 +1,36 @@
+{
+    auto_https off
+}
+
+:80 {
+    redir https://{host}{uri} permanent
+}
+
+:443 {
+    tls /etc/caddy/certs/paperless-dav.crt /etc/caddy/certs/paperless-dav.key
+
+    # Admin UI
+    handle /ui/* {
+        reverse_proxy app:8080
+    }
+
+    # Auth routes
+    handle /auth/* {
+        reverse_proxy app:8080
+    }
+
+    # Static files
+    handle /static/* {
+        reverse_proxy app:8080
+    }
+
+    # Root redirect to login
+    handle / {
+        redir /ui/login permanent
+    }
+
+    # Everything else goes to WebDAV
+    handle /* {
+        reverse_proxy app:8081
+    }
+}

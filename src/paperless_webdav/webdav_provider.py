@@ -18,7 +18,7 @@ from __future__ import annotations
 import io
 import re
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 from wsgidav.dav_provider import DAVCollection, DAVNonCollection, DAVProvider  # type: ignore[import-untyped]
 
@@ -81,6 +81,7 @@ class PaperlessProvider(DAVProvider):  # type: ignore[misc]
         shares: dict[str, Share] | None = None,
         documents_by_share: dict[str, list[PaperlessDocument]] | None = None,
         paperless_url: str | None = None,
+        share_loader: Callable[[], dict[str, Any]] | None = None,
     ) -> None:
         """Initialize the provider.
 
@@ -90,6 +91,7 @@ class PaperlessProvider(DAVProvider):  # type: ignore[misc]
                 (for backward compatibility / static mode)
             paperless_url: Base URL of the Paperless-ngx instance for dynamic
                 document loading
+            share_loader: Callable that returns dict of share configs (for dynamic loading)
         """
         super().__init__()
         self._shares: dict[str, Share] = shares or {}
@@ -97,6 +99,7 @@ class PaperlessProvider(DAVProvider):  # type: ignore[misc]
             documents_by_share or {}
         )
         self._paperless_url: str | None = paperless_url
+        self._share_loader: Callable[[], dict[str, Any]] | None = share_loader
         # Build filename-to-document mapping for each share (static mode)
         self._doc_by_filename: dict[str, dict[str, PaperlessDocument]] = {}
         self._build_filename_index()
@@ -125,6 +128,18 @@ class PaperlessProvider(DAVProvider):  # type: ignore[misc]
                     )
                     filename = f"{base_name}_{doc.id}.pdf"
                 self._doc_by_filename[share_name][filename] = doc
+
+    def _get_shares(self) -> dict[str, Share]:
+        """Get current shares, loading dynamically if share_loader is set.
+
+        Returns:
+            Dictionary mapping share names to Share objects
+        """
+        if self._share_loader is not None:
+            # Reload shares from database on each request
+            self._shares = self._share_loader()
+            logger.debug("loaded_shares", count=len(self._shares))
+        return self._shares
 
     def _create_client(self, environ: dict[str, Any]) -> PaperlessClient | None:
         """Create a PaperlessClient from WSGI environ.
@@ -155,12 +170,17 @@ class PaperlessProvider(DAVProvider):  # type: ignore[misc]
         Returns:
             The appropriate DAV resource, or None if not found
         """
+        logger.debug("get_resource_inst_called", path=path)
+
         # Normalize path
         path = path.rstrip("/")
         if not path:
             path = "/"
 
         parts = [p for p in path.split("/") if p]
+
+        # Load shares dynamically
+        shares = self._get_shares()
 
         # Root: /
         if len(parts) == 0:
@@ -170,11 +190,11 @@ class PaperlessProvider(DAVProvider):  # type: ignore[misc]
         share_name = parts[0]
 
         # Check if share exists
-        if share_name not in self._shares:
-            logger.debug("share_not_found", share_name=share_name)
+        if share_name not in shares:
+            logger.debug("share_not_found", share_name=share_name, available_shares=list(shares.keys()))
             return None
 
-        share = self._shares[share_name]
+        share = shares[share_name]
 
         # Share: /{sharename}
         if len(parts) == 1:
@@ -183,21 +203,13 @@ class PaperlessProvider(DAVProvider):  # type: ignore[misc]
 
         resource_name = parts[1]
 
-        # Done folder: /{sharename}/done
-        if resource_name == share.done_folder_name and share.done_folder_enabled:
-            logger.debug("resolve_done_folder", share_name=share_name)
-            return DoneFolderResource(path, environ, self, share)
-
-        # Document: /{sharename}/{filename}.pdf
-        if share_name in self._doc_by_filename:
-            doc = self._doc_by_filename[share_name].get(resource_name)
-            if doc is not None:
-                logger.debug(
-                    "resolve_document",
-                    share_name=share_name,
-                    document_id=doc.id,
-                )
-                return DocumentResource(path, environ, self, doc, share=share)
+        # Use ShareResource to resolve members (handles dynamic loading)
+        share_resource = ShareResource(f"/{share_name}", environ, self, share)
+        member = share_resource.get_member(resource_name)
+        if member is not None:
+            # Update the path to the full requested path
+            member.path = path
+            return member
 
         logger.debug("resource_not_found", path=path)
         return None
@@ -239,7 +251,8 @@ class RootResource(DAVCollection):  # type: ignore[misc]
         Returns:
             List of share names that appear as directories
         """
-        return list(self._provider._shares.keys())
+        shares = self._provider._get_shares()
+        return list(shares.keys())
 
     def get_member(self, name: str) -> ShareResource | None:
         """Get a share by name.
@@ -250,8 +263,9 @@ class RootResource(DAVCollection):  # type: ignore[misc]
         Returns:
             ShareResource if found, None otherwise
         """
-        if name in self._provider._shares:
-            share = self._provider._shares[name]
+        shares = self._provider._get_shares()
+        if name in shares:
+            share = shares[name]
             return ShareResource(f"/{name}", self.environ, self._provider, share)
         return None
 
@@ -707,6 +721,8 @@ class DocumentResource(DAVNonCollection):  # type: ignore[misc]
         self._in_done_folder: bool = in_done_folder
         # Cache for downloaded content
         self._content: bytes | None = None
+        # Cache for file size (from HEAD request)
+        self._file_size: int | None = None
 
     def get_display_name(self) -> str:
         """Return the document filename for display.
@@ -759,25 +775,24 @@ class DocumentResource(DAVNonCollection):  # type: ignore[misc]
         )
         return b""
 
-    def get_content_length(self) -> int:
+    def get_content_length(self) -> int | None:
         """Return the content length.
 
-        Returns the actual size of the document content. If content has
-        been downloaded, returns its length. Otherwise returns -1 to
-        indicate unknown length.
-
-        Note: Returning -1 before download is intentional behavior.
-        WsgiDAV handles this gracefully by using HTTP chunked transfer
-        encoding, avoiding an extra API call just to get the content size.
+        Downloads the content first to ensure consistency with get_content().
+        This avoids mismatches between HEAD request size and actual GET content.
 
         Returns:
-            Content length in bytes, or -1 if unknown (triggers chunked transfer)
+            Content length in bytes, or None if unknown
         """
-        if self._content is not None:
-            return len(self._content)
-        # Intentionally return -1 before download - wsgidav will use
-        # chunked transfer encoding, which is acceptable behavior
-        return -1
+        # Always download content first to ensure get_content_length matches get_content
+        content = self._download_content()
+        size = len(content)
+        logger.debug(
+            "get_content_length",
+            document_id=self.document.id,
+            size=size,
+        )
+        return size
 
     def get_content(self) -> io.BytesIO:
         """Return the document content as a file-like object.
@@ -789,23 +804,30 @@ class DocumentResource(DAVNonCollection):  # type: ignore[misc]
             File-like object containing document content
         """
         content = self._download_content()
+        logger.debug(
+            "get_content_returning",
+            document_id=self.document.id,
+            content_size=len(content),
+        )
         return io.BytesIO(content)
 
-    def get_creation_date(self) -> datetime:
-        """Return the document creation date.
+    def get_creation_date(self) -> float:
+        """Return the document creation date as Unix timestamp.
 
         Returns:
-            The document's created timestamp
+            The document's created timestamp as seconds since epoch
         """
-        return self._parse_iso_datetime(self.document.created)
+        dt = self._parse_iso_datetime(self.document.created)
+        return dt.timestamp()
 
-    def get_last_modified(self) -> datetime:
-        """Return the document modification date.
+    def get_last_modified(self) -> float:
+        """Return the document modification date as Unix timestamp.
 
         Returns:
-            The document's modified timestamp
+            The document's modified timestamp as seconds since epoch
         """
-        return self._parse_iso_datetime(self.document.modified)
+        dt = self._parse_iso_datetime(self.document.modified)
+        return dt.timestamp()
 
     def get_etag(self) -> str:
         """Return an etag for cache validation.
@@ -814,9 +836,10 @@ class DocumentResource(DAVNonCollection):  # type: ignore[misc]
         allowing clients to detect when documents have changed.
 
         Returns:
-            A string etag value
+            A string etag value (wsgidav adds the quotes)
         """
-        return f'"{self.document.id}-{self.document.modified}"'
+        modified_ts = int(self._parse_iso_datetime(self.document.modified).timestamp())
+        return f"{self.document.id}-{modified_ts}"
 
     def support_etag(self) -> bool:
         """Indicate whether this resource supports etags.

@@ -45,3 +45,4 @@ htmlcov/
 
 # Node (for frontend tooling if needed)
 node_modules/
+certs/

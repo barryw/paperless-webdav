@@ -1,0 +1,49 @@
+services:
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./certs:/etc/caddy/certs:ro
+    depends_on:
+      - app
+    restart: unless-stopped
+
+  app:
+    build: .
+    environment:
+      - PAPERLESS_URL=${PAPERLESS_URL}
+      - DATABASE_URL=postgresql+asyncpg://paperless_webdav:paperless_webdav@db:5432/paperless_webdav
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+      - SECRET_KEY=${SECRET_KEY}
+      - AUTH_MODE=${AUTH_MODE:-paperless}
+      - COOKIE_SECURE=true
+      - LOG_FORMAT=console
+      # OIDC settings (only needed if AUTH_MODE=oidc)
+      - OIDC_ISSUER=${OIDC_ISSUER:-}
+      - OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-}
+      - OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET:-}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=paperless_webdav
+      - POSTGRES_PASSWORD=paperless_webdav
+      - POSTGRES_DB=paperless_webdav
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U paperless_webdav"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  pgdata:

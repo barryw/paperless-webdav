@@ -11,7 +11,7 @@ from sqlalchemy import select
 
 from paperless_webdav.async_bridge import run_async
 from paperless_webdav.config import get_settings
-from paperless_webdav.database import _async_session_factory, close_database, init_database
+from paperless_webdav.database import _async_session_factory, close_database, get_sync_session, init_database
 from paperless_webdav.logging import get_logger, setup_logging
 from paperless_webdav.models import Share
 from paperless_webdav.webdav_server import WebDAVServer
@@ -32,11 +32,23 @@ async def _load_all_shares() -> list[Share]:
 def load_shares_sync() -> dict[str, Any]:
     """Load shares synchronously for WebDAV provider.
 
+    Uses synchronous database access since WebDAV runs in a separate thread.
+
     Returns:
         Dict mapping share names to Share objects
     """
-    shares = run_async(_load_all_shares())
-    return {share.name: share for share in shares}
+    try:
+        with get_sync_session() as session:
+            result = session.execute(select(Share))
+            shares = list(result.scalars().all())
+            logger.debug("loaded_shares_sync", count=len(shares))
+            return {share.name: share for share in shares}
+    except RuntimeError as e:
+        logger.error("load_shares_sync_failed", error=str(e))
+        return {}
+    except Exception as e:
+        logger.error("load_shares_sync_error", error=str(e), error_type=type(e).__name__)
+        return {}
 
 
 def run_servers() -> None:
@@ -54,6 +66,10 @@ def run_servers() -> None:
     run_async(init_database(settings.database_url.get_secret_value()))
 
     # Create WebDAV server with auth mode and encryption key for OIDC support
+    ldap_bind_password = None
+    if settings.ldap_bind_password:
+        ldap_bind_password = settings.ldap_bind_password.get_secret_value()
+
     webdav_server = WebDAVServer(
         host="0.0.0.0",
         port=settings.webdav_port,
@@ -61,6 +77,10 @@ def run_servers() -> None:
         share_loader=load_shares_sync,
         auth_mode=settings.auth_mode,
         encryption_key=settings.encryption_key.get_secret_value(),
+        ldap_url=settings.ldap_url,
+        ldap_base_dn=settings.ldap_base_dn,
+        ldap_bind_dn=settings.ldap_bind_dn,
+        ldap_bind_password=ldap_bind_password,
     )
 
     # Run WebDAV server in background thread

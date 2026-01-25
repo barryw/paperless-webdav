@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paperless-webdav
+  namespace: default
+  labels:
+    app: paperless-webdav
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: paperless-webdav
+  template:
+    metadata:
+      labels:
+        app: paperless-webdav
+    spec:
+      containers:
+        - name: paperless-webdav
+          image: paperless-webdav:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8080
+              name: admin
+            - containerPort: 8081
+              name: webdav
+          env:
+            - name: PAPERLESS_URL
+              value: "http://paperless-service.default.svc.cluster.local:8000"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: walker-cnpg-app
+                  key: uri
+            - name: ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: paperless-webdav
+                  key: ENCRYPTION_KEY
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: paperless-webdav
+                  key: SECRET_KEY
+            - name: AUTH_MODE
+              value: "paperless"
+            - name: COOKIE_SECURE
+              value: "true"
+            - name: LOG_FORMAT
+              value: "console"
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: paperless-webdav
+  namespace: default
+  labels:
+    app: paperless-webdav
+spec:
+  selector:
+    app: paperless-webdav
+  ports:
+    - name: admin
+      port: 8080
+      targetPort: 8080
+    - name: webdav
+      port: 8081
+      targetPort: 8081

@@ -1,8 +1,10 @@
 # src/paperless_webdav/auth/oidc.py
 """OIDC authentication routes for Authentik SSO."""
 
+import os
 from typing import Annotated
 
+import httpx
 from authlib.integrations.starlette_client import OAuth
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse
@@ -30,6 +32,10 @@ def get_oauth(settings: Settings) -> OAuth:
     """
     global _oauth
     if _oauth is None:
+        # Configure httpx client with CA bundle and timeout
+        ssl_cert_file = os.environ.get("SSL_CERT_FILE")
+        verify = ssl_cert_file if ssl_cert_file else True
+
         _oauth = OAuth()
         _oauth.register(
             name="authentik",
@@ -38,7 +44,11 @@ def get_oauth(settings: Settings) -> OAuth:
             if settings.oidc_client_secret
             else None,
             server_metadata_url=f"{settings.oidc_issuer}/.well-known/openid-configuration",
-            client_kwargs={"scope": "openid profile email"},
+            client_kwargs={
+                "scope": "openid profile email",
+                "timeout": httpx.Timeout(30.0),
+                "verify": verify,
+            },
         )
     return _oauth
 
@@ -105,7 +115,7 @@ async def oidc_callback(
 
     session_value = _create_session(username, "", settings)
 
-    response = RedirectResponse(url="/ui/token-setup")
+    response = RedirectResponse(url="/ui/token-setup", status_code=303)
     response.set_cookie(
         key="session",
         value=session_value,
@@ -113,6 +123,7 @@ async def oidc_callback(
         samesite="lax",
         secure=settings.cookie_secure,
         max_age=settings.session_expiry_hours * 3600,
+        path="/",
     )
     logger.info("oidc_login_success", username=username)
     return response

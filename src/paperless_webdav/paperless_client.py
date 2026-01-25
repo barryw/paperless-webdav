@@ -74,6 +74,7 @@ class PaperlessClient:
         endpoint: str,
         params: dict[str, Any] | None = None,
         json_data: dict[str, Any] | None = None,
+        timeout: httpx.Timeout | None = None,
     ) -> httpx.Response:
         """Make an HTTP request to the Paperless API.
 
@@ -82,12 +83,15 @@ class PaperlessClient:
             endpoint: API endpoint path (e.g., "/api/tags/")
             params: Query parameters
             json_data: JSON body data
+            timeout: Optional custom timeout (defaults to 30s connect, 60s read)
 
         Returns:
             httpx.Response object
         """
         url = f"{self.base_url}{endpoint}"
-        async with httpx.AsyncClient() as client:
+        if timeout is None:
+            timeout = httpx.Timeout(30.0, read=60.0)
+        async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.request(
                 method=method,
                 url=url,
@@ -115,7 +119,8 @@ class PaperlessClient:
         url: str | None = f"{self.base_url}{endpoint}"
         request_params = params
 
-        async with httpx.AsyncClient() as client:
+        timeout = httpx.Timeout(30.0, read=60.0)
+        async with httpx.AsyncClient(timeout=timeout) as client:
             while url is not None:
                 response = await client.get(
                     url,
@@ -135,13 +140,13 @@ class PaperlessClient:
         return results
 
     async def validate_token(self) -> bool:
-        """Validate the API token by making a request to the API root.
+        """Validate the API token by making a request to the tags endpoint.
 
         Returns:
             True if the token is valid, False if unauthorized
         """
         try:
-            response = await self._request("GET", "/api/")
+            response = await self._request("GET", "/api/tags/")
             if response.status_code == 401:
                 logger.info("token_validation_failed", status_code=401)
                 return False
@@ -251,10 +256,43 @@ class PaperlessClient:
         Returns:
             Raw bytes of the document content
         """
-        response = await self._request("GET", f"/api/documents/{document_id}/download/")
-        response.raise_for_status()
-        logger.debug("downloaded_document", document_id=document_id, size=len(response.content))
-        return response.content
+        # Use longer timeout for file downloads (large files may take a while)
+        # Don't use _request() here - we need to read content while client is open
+        url = f"{self.base_url}/api/documents/{document_id}/download/"
+        timeout = httpx.Timeout(30.0, read=300.0)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.get(url, headers=self._headers)
+            response.raise_for_status()
+            # Read content while client connection is still open
+            content = response.content
+            logger.debug("downloaded_document", document_id=document_id, size=len(content))
+            return content
+
+    async def get_document_size(self, document_id: int) -> int | None:
+        """Get the size of a document without downloading it.
+
+        Uses a HEAD request to the download endpoint to get Content-Length.
+
+        Args:
+            document_id: The ID of the document
+
+        Returns:
+            Size in bytes, or None if unavailable
+        """
+        url = f"{self.base_url}/api/documents/{document_id}/download/"
+        timeout = httpx.Timeout(30.0, read=60.0)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            try:
+                response = await client.head(url, headers=self._headers)
+                response.raise_for_status()
+                content_length = response.headers.get("Content-Length")
+                if content_length:
+                    size = int(content_length)
+                    logger.debug("got_document_size", document_id=document_id, size=size)
+                    return size
+            except Exception as e:
+                logger.debug("get_document_size_failed", document_id=document_id, error=str(e))
+        return None
 
     async def _get_document(self, document_id: int) -> dict[str, Any]:
         """Fetch a single document's details.

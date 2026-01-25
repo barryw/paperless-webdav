@@ -5,6 +5,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from paperless_webdav.api.health import router as health_router
 from paperless_webdav.api.shares import router as shares_router
@@ -53,6 +55,15 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    settings = get_settings()
+
+    # Session middleware for OIDC state (use different cookie name to avoid conflict)
+    app.add_middleware(
+        SessionMiddleware,
+        secret_key=settings.secret_key.get_secret_value(),
+        session_cookie="oidc_state",
+    )
+
     # CORS middleware for development
     app.add_middleware(
         CORSMiddleware,
@@ -74,4 +85,5 @@ def create_app() -> FastAPI:
 
 
 # For direct uvicorn usage
-app = create_app()
+# Wrap with ProxyHeadersMiddleware to handle X-Forwarded-Proto from reverse proxy
+app = ProxyHeadersMiddleware(create_app(), trusted_hosts=["*"])
