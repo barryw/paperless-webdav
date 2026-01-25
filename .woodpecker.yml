@@ -70,9 +70,10 @@ steps:
       - event: push
         branch: main
       - event: tag
+    secrets: [ghcr_token]
     commands:
       - mkdir -p /kaniko/.docker
-      - echo "{\"auths\":{\"ghcr.io\":{\"username\":\"barryw\",\"password\":\"${CI_FORGE_TOKEN}\"}}}" > /kaniko/.docker/config.json
+      - echo "{\"auths\":{\"ghcr.io\":{\"username\":\"barryw\",\"password\":\"$GHCR_TOKEN\"}}}" > /kaniko/.docker/config.json
       - /kaniko/executor --dockerfile=Dockerfile --context=. --destination=ghcr.io/barryw/paperless-webdav:${CI_COMMIT_TAG:-${CI_COMMIT_SHA:0:8}} --destination=ghcr.io/barryw/paperless-webdav:latest
     depends_on: [test, typecheck]
 
