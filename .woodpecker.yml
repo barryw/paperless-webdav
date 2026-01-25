@@ -92,7 +92,7 @@ steps:
     commands:
       - mkdir -p /kaniko/.docker
       - echo "{\"auths\":{\"ghcr.io\":{\"username\":\"barryw\",\"password\":\"$GHCR_TOKEN\"}}}" > /kaniko/.docker/config.json
-      - /kaniko/executor --dockerfile=Dockerfile --context=. --destination=ghcr.io/barryw/paperless-webdav:${CI_COMMIT_TAG}
+      - "/kaniko/executor --dockerfile=Dockerfile --context=. --destination=ghcr.io/barryw/paperless-webdav:${CI_COMMIT_TAG}"
 
   # ============================================
   # Create GitHub Release (tag events only)
