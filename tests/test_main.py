@@ -84,9 +84,7 @@ class TestLoadAllShares:
     """Tests for _load_all_shares async function."""
 
     @pytest.mark.asyncio
-    async def test_load_all_shares_returns_empty_when_no_session_factory(
-        self, mock_main_settings
-    ):
+    async def test_load_all_shares_returns_empty_when_no_session_factory(self, mock_main_settings):
         """_load_all_shares should return empty list when session factory is None."""
         from paperless_webdav.main import _load_all_shares
 
@@ -113,9 +111,7 @@ class TestLoadAllShares:
 
         # Create mock session factory context manager
         mock_session_factory = MagicMock()
-        mock_session_factory.return_value.__aenter__ = AsyncMock(
-            return_value=mock_session
-        )
+        mock_session_factory.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_session_factory.return_value.__aexit__ = AsyncMock(return_value=None)
 
         with patch("paperless_webdav.main._async_session_factory", mock_session_factory):
@@ -268,9 +264,10 @@ class TestRunServers:
             call_kwargs = mock_uvicorn.call_args.kwargs
             call_args = mock_uvicorn.call_args.args
 
-            assert "paperless_webdav.app:app" in call_args or call_kwargs.get(
-                "app"
-            ) == "paperless_webdav.app:app"
+            assert (
+                "paperless_webdav.app:app" in call_args
+                or call_kwargs.get("app") == "paperless_webdav.app:app"
+            )
             assert call_kwargs.get("host") == "0.0.0.0"
             assert call_kwargs.get("port") == 8080
 

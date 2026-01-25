@@ -51,9 +51,7 @@ async def test_ready_endpoint_with_db_connected(mock_settings):
     app.dependency_overrides[get_db_session_optional] = mock_get_session
 
     try:
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get("/ready")
 
         # Database check should pass

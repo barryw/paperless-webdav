@@ -178,6 +178,7 @@ class PaperlessBasicAuthenticator(BaseDomainController):  # type: ignore[misc]
         try:
             with get_sync_session() as session:
                 from sqlalchemy import select
+
                 stmt = select(User).where(User.external_id == username)
                 result = session.execute(stmt)
                 user = result.scalar_one_or_none()

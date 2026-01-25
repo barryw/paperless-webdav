@@ -100,9 +100,7 @@ async def test_create_share(app_with_auth, mock_user, mock_session):
     ) as mock_get_by_name:
         mock_get_by_name.return_value = None  # No existing share
 
-        with patch.object(
-            shares_module, "create_share", new_callable=AsyncMock
-        ) as mock_create:
+        with patch.object(shares_module, "create_share", new_callable=AsyncMock) as mock_create:
             share_id = uuid4()
             mock_create.return_value = MockShare(
                 id=share_id,
@@ -202,9 +200,7 @@ async def test_list_shares_with_items(app_with_auth, mock_user, mock_session):
 async def test_get_share(app_with_auth, mock_user, mock_session):
     """Get specific share by name."""
     share_id = uuid4()
-    with patch.object(
-        shares_module, "get_share_by_name", new_callable=AsyncMock
-    ) as mock_get:
+    with patch.object(shares_module, "get_share_by_name", new_callable=AsyncMock) as mock_get:
         mock_get.return_value = MockShare(
             id=share_id,
             name="tax2025",
@@ -231,9 +227,7 @@ async def test_get_share(app_with_auth, mock_user, mock_session):
 @pytest.mark.asyncio
 async def test_get_share_not_found(app_with_auth, mock_user, mock_session):
     """Get non-existent share should return 404."""
-    with patch.object(
-        shares_module, "get_share_by_name", new_callable=AsyncMock
-    ) as mock_get:
+    with patch.object(shares_module, "get_share_by_name", new_callable=AsyncMock) as mock_get:
         mock_get.return_value = None
 
         async with AsyncClient(
@@ -248,9 +242,7 @@ async def test_get_share_not_found(app_with_auth, mock_user, mock_session):
 async def test_update_share(app_with_auth, mock_user, mock_session):
     """Update share should return updated share."""
     share_id = uuid4()
-    with patch.object(
-        shares_module, "get_share_by_name", new_callable=AsyncMock
-    ) as mock_get:
+    with patch.object(shares_module, "get_share_by_name", new_callable=AsyncMock) as mock_get:
         mock_get.return_value = MockShare(
             id=share_id,
             name="tax2025",
@@ -264,14 +256,10 @@ async def test_update_share(app_with_auth, mock_user, mock_session):
             allowed_users=[],
         )
 
-        with patch.object(
-            shares_module, "is_share_owner", new_callable=AsyncMock
-        ) as mock_is_owner:
+        with patch.object(shares_module, "is_share_owner", new_callable=AsyncMock) as mock_is_owner:
             mock_is_owner.return_value = True  # User is owner
 
-            with patch.object(
-                shares_module, "update_share", new_callable=AsyncMock
-            ) as mock_update:
+            with patch.object(shares_module, "update_share", new_callable=AsyncMock) as mock_update:
                 mock_update.return_value = MockShare(
                     id=share_id,
                     name="tax2025",
@@ -319,9 +307,7 @@ async def test_delete_share_not_found(app_with_auth, mock_user, mock_session):
 @pytest.mark.asyncio
 async def test_create_share_duplicate_name(app_with_auth, mock_user, mock_session):
     """Create share with existing name should return 409."""
-    with patch.object(
-        shares_module, "get_share_by_name", new_callable=AsyncMock
-    ) as mock_get:
+    with patch.object(shares_module, "get_share_by_name", new_callable=AsyncMock) as mock_get:
         mock_get.return_value = MockShare(
             id=uuid4(),
             name="existing",
@@ -371,14 +357,10 @@ async def test_create_share_done_folder_requires_tag(app_with_auth, mock_user, m
 @pytest.mark.asyncio
 async def test_create_share_with_done_folder(app_with_auth, mock_user, mock_session):
     """Create share with done folder configured."""
-    with patch.object(
-        shares_module, "get_share_by_name", new_callable=AsyncMock
-    ) as mock_get:
+    with patch.object(shares_module, "get_share_by_name", new_callable=AsyncMock) as mock_get:
         mock_get.return_value = None
 
-        with patch.object(
-            shares_module, "create_share", new_callable=AsyncMock
-        ) as mock_create:
+        with patch.object(shares_module, "create_share", new_callable=AsyncMock) as mock_create:
             share_id = uuid4()
             mock_create.return_value = MockShare(
                 id=share_id,
@@ -428,9 +410,7 @@ async def test_unauthenticated_request(mock_settings):
     app.dependency_overrides[shares_module.get_db_session] = mock_get_session
 
     try:
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get("/api/shares")
 
         assert response.status_code == 401
@@ -461,14 +441,10 @@ async def test_share_name_validation_valid_names(app_with_auth, mock_user, mock_
     valid_names = ["a", "A", "1", "abc", "abc-123", "ABC-xyz-123"]
 
     for name in valid_names:
-        with patch.object(
-            shares_module, "get_share_by_name", new_callable=AsyncMock
-        ) as mock_get:
+        with patch.object(shares_module, "get_share_by_name", new_callable=AsyncMock) as mock_get:
             mock_get.return_value = None
 
-            with patch.object(
-                shares_module, "create_share", new_callable=AsyncMock
-            ) as mock_create:
+            with patch.object(shares_module, "create_share", new_callable=AsyncMock) as mock_create:
                 mock_create.return_value = MockShare(
                     id=uuid4(),
                     name=name,

@@ -11,7 +11,12 @@ from sqlalchemy import select
 
 from paperless_webdav.async_bridge import run_async
 from paperless_webdav.config import get_settings
-from paperless_webdav.database import _async_session_factory, close_database, get_sync_session, init_database
+from paperless_webdav.database import (
+    _async_session_factory,
+    close_database,
+    get_sync_session,
+    init_database,
+)
 from paperless_webdav.logging import get_logger, setup_logging
 from paperless_webdav.models import Share
 from paperless_webdav.webdav_server import WebDAVServer

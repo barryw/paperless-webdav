@@ -817,9 +817,7 @@ async def test_form_has_user_autocomplete(app_with_db, auth_cookie, mock_setting
 @pytest.mark.asyncio
 async def test_create_share_form_submission(app_with_db, auth_cookie, mock_settings):
     """Create share form submission should create share and redirect."""
-    with patch(
-        "paperless_webdav.ui.routes.create_share", new_callable=AsyncMock
-    ) as mock_create:
+    with patch("paperless_webdav.ui.routes.create_share", new_callable=AsyncMock) as mock_create:
         mock_create.return_value = MagicMock(id=uuid4(), name="new-share")
 
         async with AsyncClient(
@@ -880,9 +878,7 @@ async def test_create_share_form_validation_error(app_with_db, auth_cookie, mock
 @pytest.mark.asyncio
 async def test_create_share_form_parses_multi_value_fields(app_with_db, auth_cookie, mock_settings):
     """Create share form should correctly parse multi-value fields."""
-    with patch(
-        "paperless_webdav.ui.routes.create_share", new_callable=AsyncMock
-    ) as mock_create:
+    with patch("paperless_webdav.ui.routes.create_share", new_callable=AsyncMock) as mock_create:
         mock_create.return_value = MagicMock(id=uuid4(), name="multi-tag-share")
 
         async with AsyncClient(
@@ -909,9 +905,7 @@ async def test_create_share_form_parses_multi_value_fields(app_with_db, auth_coo
 @pytest.mark.asyncio
 async def test_create_share_form_parses_checkbox(app_with_db, auth_cookie, mock_settings):
     """Create share form should correctly parse checkboxes (presence = true)."""
-    with patch(
-        "paperless_webdav.ui.routes.create_share", new_callable=AsyncMock
-    ) as mock_create:
+    with patch("paperless_webdav.ui.routes.create_share", new_callable=AsyncMock) as mock_create:
         mock_create.return_value = MagicMock(id=uuid4(), name="checkbox-share")
 
         async with AsyncClient(
@@ -938,9 +932,7 @@ async def test_create_share_form_parses_checkbox(app_with_db, auth_cookie, mock_
 @pytest.mark.asyncio
 async def test_create_share_form_parses_datetime(app_with_db, auth_cookie, mock_settings):
     """Create share form should correctly parse datetime-local inputs."""
-    with patch(
-        "paperless_webdav.ui.routes.create_share", new_callable=AsyncMock
-    ) as mock_create:
+    with patch("paperless_webdav.ui.routes.create_share", new_callable=AsyncMock) as mock_create:
         mock_create.return_value = MagicMock(id=uuid4(), name="expiring-share")
 
         async with AsyncClient(
@@ -966,9 +958,7 @@ async def test_create_share_form_parses_datetime(app_with_db, auth_cookie, mock_
 @pytest.mark.asyncio
 async def test_create_share_form_handles_done_folder(app_with_db, auth_cookie, mock_settings):
     """Create share form should correctly parse done folder fields."""
-    with patch(
-        "paperless_webdav.ui.routes.create_share", new_callable=AsyncMock
-    ) as mock_create:
+    with patch("paperless_webdav.ui.routes.create_share", new_callable=AsyncMock) as mock_create:
         mock_create.return_value = MagicMock(id=uuid4(), name="done-share")
 
         async with AsyncClient(
@@ -1121,9 +1111,7 @@ async def test_edit_share_form_validation_error(app_with_db, auth_cookie, mock_s
 @pytest.mark.asyncio
 async def test_create_share_form_database_error(app_with_db, auth_cookie, mock_settings):
     """Create share form should show error on database failure."""
-    with patch(
-        "paperless_webdav.ui.routes.create_share", new_callable=AsyncMock
-    ) as mock_create:
+    with patch("paperless_webdav.ui.routes.create_share", new_callable=AsyncMock) as mock_create:
         mock_create.side_effect = Exception("Database connection failed")
 
         async with AsyncClient(
@@ -1167,9 +1155,7 @@ async def test_form_displays_error_message(app_with_db, auth_cookie, mock_settin
 @pytest.mark.asyncio
 async def test_delete_share(app_with_db, auth_cookie, mock_settings):
     """Delete share should remove and return empty response."""
-    with patch(
-        "paperless_webdav.ui.routes.delete_share", new_callable=AsyncMock
-    ) as mock_delete:
+    with patch("paperless_webdav.ui.routes.delete_share", new_callable=AsyncMock) as mock_delete:
         mock_delete.return_value = True
 
         async with AsyncClient(
@@ -1199,9 +1185,7 @@ async def test_delete_share_requires_auth(app_with_db):
 @pytest.mark.asyncio
 async def test_delete_share_not_found(app_with_db, auth_cookie, mock_settings):
     """Delete share should return 404 if share not found or not authorized."""
-    with patch(
-        "paperless_webdav.ui.routes.delete_share", new_callable=AsyncMock
-    ) as mock_delete:
+    with patch("paperless_webdav.ui.routes.delete_share", new_callable=AsyncMock) as mock_delete:
         mock_delete.return_value = False
 
         async with AsyncClient(
@@ -1382,9 +1366,7 @@ async def test_full_share_crud_flow(app_with_db, mock_settings):
         ) as mock_get_share:
             mock_get_share.return_value = shares_db["my-test-share"]
 
-            response = await client.get(
-                "/ui/shares/my-test-share/edit", cookies=session_cookie
-            )
+            response = await client.get("/ui/shares/my-test-share/edit", cookies=session_cookie)
 
         assert response.status_code == 200
         assert "Edit Share" in response.text
@@ -1450,9 +1432,7 @@ async def test_full_share_crud_flow(app_with_db, mock_settings):
             # Remove from our simulated storage
             del shares_db["my-test-share"]
 
-            response = await client.delete(
-                "/ui/shares/my-test-share", cookies=session_cookie
-            )
+            response = await client.delete("/ui/shares/my-test-share", cookies=session_cookie)
 
         assert response.status_code == 200
         assert response.text == ""
@@ -1479,9 +1459,7 @@ async def test_full_share_crud_flow(app_with_db, mock_settings):
         # ============================================================
         # Step 10: Logout
         # ============================================================
-        response = await client.post(
-            "/ui/logout", cookies=session_cookie, follow_redirects=False
-        )
+        response = await client.post("/ui/logout", cookies=session_cookie, follow_redirects=False)
 
         assert response.status_code == 303
         assert response.headers["location"] == "/ui/login"
@@ -1692,4 +1670,8 @@ async def test_token_setup_shows_error_for_empty_token(app_with_db, auth_cookie,
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
     # Should show error message about empty token
-    assert "required" in response.text.lower() or "enter" in response.text.lower() or "empty" in response.text.lower()
+    assert (
+        "required" in response.text.lower()
+        or "enter" in response.text.lower()
+        or "empty" in response.text.lower()
+    )

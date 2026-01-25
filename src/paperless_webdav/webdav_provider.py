@@ -31,9 +31,7 @@ from paperless_webdav.paperless_client import PaperlessClient, PaperlessDocument
 DocumentList = list[PaperlessDocument]
 
 
-def prefetch_document_sizes(
-    client: PaperlessClient, documents: DocumentList
-) -> None:
+def prefetch_document_sizes(client: PaperlessClient, documents: DocumentList) -> None:
     """Pre-fetch and cache sizes for all documents concurrently.
 
     This issues concurrent HEAD requests for all documents to populate
@@ -49,9 +47,7 @@ def prefetch_document_sizes(
     cache = get_cache()
 
     # Filter out documents whose sizes are already cached
-    doc_ids_to_fetch = [
-        doc.id for doc in documents if cache.get_size(doc.id) is None
-    ]
+    doc_ids_to_fetch = [doc.id for doc in documents if cache.get_size(doc.id) is None]
 
     if not doc_ids_to_fetch:
         logger.debug("prefetch_all_cached", total=len(documents))
@@ -79,6 +75,7 @@ def prefetch_document_sizes(
     except Exception as e:
         # Don't fail document listing if prefetch fails
         logger.warning("prefetch_failed", error=str(e))
+
 
 if TYPE_CHECKING:
     from paperless_webdav.models import Share
@@ -222,9 +219,7 @@ class PaperlessProvider(DAVProvider):  # type: ignore[misc]
         """
         super().__init__()
         self._shares: dict[str, Share] = shares or {}
-        self._documents_by_share: dict[str, list[PaperlessDocument]] = (
-            documents_by_share or {}
-        )
+        self._documents_by_share: dict[str, list[PaperlessDocument]] = documents_by_share or {}
         self._paperless_url: str | None = paperless_url
         self._share_loader: Callable[[], dict[str, Any]] | None = share_loader
         # Build filename-to-document mapping for each share (static mode)
@@ -318,7 +313,9 @@ class PaperlessProvider(DAVProvider):  # type: ignore[misc]
 
         # Check if share exists
         if share_name not in shares:
-            logger.debug("share_not_found", share_name=share_name, available_shares=list(shares.keys()))
+            logger.debug(
+                "share_not_found", share_name=share_name, available_shares=list(shares.keys())
+            )
             return None
 
         share = shares[share_name]
@@ -388,9 +385,7 @@ class RootResource(DAVCollection):  # type: ignore[misc]
     Lists all available shares as subdirectories.
     """
 
-    def __init__(
-        self, path: str, environ: dict[str, Any], provider: PaperlessProvider
-    ) -> None:
+    def __init__(self, path: str, environ: dict[str, Any], provider: PaperlessProvider) -> None:
         """Initialize the root resource.
 
         Args:
@@ -462,9 +457,7 @@ class ShareResource(DAVCollection):  # type: ignore[misc]
         """
         return self._share.name
 
-    def _resolve_tag_ids_from_map(
-        self, tag_map: dict[str, int], tag_names: list[str]
-    ) -> list[int]:
+    def _resolve_tag_ids_from_map(self, tag_map: dict[str, int], tag_names: list[str]) -> list[int]:
         """Resolve tag names to tag IDs using a pre-fetched tag map.
 
         Args:
@@ -536,9 +529,7 @@ class ShareResource(DAVCollection):  # type: ignore[misc]
             # When done folder is enabled, exclude documents with done_tag from root
             # (they should only appear in the done folder, not in the share root)
             if self._share.done_folder_enabled and self._share.done_tag:
-                done_tag_ids = self._resolve_tag_ids_from_map(
-                    tag_map, [self._share.done_tag]
-                )
+                done_tag_ids = self._resolve_tag_ids_from_map(tag_map, [self._share.done_tag])
                 exclude_tag_ids.extend(done_tag_ids)
 
             # Fetch documents with tag filters
@@ -700,6 +691,7 @@ class ShareResource(DAVCollection):  # type: ignore[misc]
 
         # Don't allow creating arbitrary files
         from wsgidav.dav_error import DAVError, HTTP_FORBIDDEN  # type: ignore[import-untyped]
+
         raise DAVError(HTTP_FORBIDDEN, f"Cannot create files in this share: {name}")
 
 
@@ -740,9 +732,7 @@ class DoneFolderResource(DAVCollection):  # type: ignore[misc]
         """
         return self._share.done_folder_name
 
-    def _resolve_tag_ids_from_map(
-        self, tag_map: dict[str, int], tag_names: list[str]
-    ) -> list[int]:
+    def _resolve_tag_ids_from_map(self, tag_map: dict[str, int], tag_names: list[str]) -> list[int]:
         """Resolve tag names to tag IDs using a pre-fetched tag map.
 
         Args:
@@ -808,9 +798,7 @@ class DoneFolderResource(DAVCollection):  # type: ignore[misc]
 
             # Add done_tag to include list (documents must have this tag)
             if self._share.done_tag:
-                done_tag_ids = self._resolve_tag_ids_from_map(
-                    tag_map, [self._share.done_tag]
-                )
+                done_tag_ids = self._resolve_tag_ids_from_map(tag_map, [self._share.done_tag])
                 include_tag_ids.extend(done_tag_ids)
 
             # Exclude tags: share's exclude_tags (but NOT the done_tag)
@@ -947,6 +935,7 @@ class DoneFolderResource(DAVCollection):  # type: ignore[misc]
             return MacOSMetadataResource(f"{self.path}/{name}", self.environ)
 
         from wsgidav.dav_error import DAVError, HTTP_FORBIDDEN  # type: ignore[import-untyped]
+
         raise DAVError(HTTP_FORBIDDEN, f"Cannot create files in done folder: {name}")
 
 
@@ -1187,10 +1176,7 @@ class DocumentResource(DAVNonCollection):  # type: ignore[misc]
         folder_name = parts[1]
 
         # Check if it's moving to this share's done folder
-        return (
-            share_name == self._share.name
-            and folder_name == self._share.done_folder_name
-        )
+        return share_name == self._share.name and folder_name == self._share.done_folder_name
 
     def _is_move_from_done_folder_to_root(self, dest_path: str) -> bool:
         """Check if this is a move from done folder to root.

@@ -283,9 +283,7 @@ async def store_user_token(
     logger.info("user_token_stored", external_id=username)
 
 
-async def get_user_token(
-    session: AsyncSession, username: str, encryption_key: str
-) -> str | None:
+async def get_user_token(session: AsyncSession, username: str, encryption_key: str) -> str | None:
     """Retrieve and decrypt a user's Paperless API token.
 
     Args:

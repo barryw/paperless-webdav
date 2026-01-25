@@ -92,9 +92,7 @@ async def test_list_tags_empty(app_with_auth):
 async def test_search_tags(app_with_auth):
     """Search tags should filter by name."""
     with respx.mock:
-        respx.get(
-            "http://paperless.test/api/tags/", params={"name__icontains": "tax"}
-        ).mock(
+        respx.get("http://paperless.test/api/tags/", params={"name__icontains": "tax"}).mock(
             return_value=Response(
                 200,
                 json={
@@ -162,9 +160,7 @@ async def test_list_tags_unauthenticated(mock_settings):
     """List tags without authentication should return 401."""
     app = create_app()
 
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.get("/api/tags")
 
     assert response.status_code == 401
@@ -175,9 +171,7 @@ async def test_search_tags_unauthenticated(mock_settings):
     """Search tags without authentication should return 401."""
     app = create_app()
 
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.get("/api/tags/search", params={"q": "tax"})
 
     assert response.status_code == 401

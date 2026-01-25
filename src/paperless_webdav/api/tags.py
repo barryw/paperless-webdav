@@ -18,10 +18,7 @@ router = APIRouter(prefix="/api/tags", tags=["tags"])
 
 def _tags_to_response(tags: list[PaperlessTag]) -> list[TagResponse]:
     """Convert PaperlessTag objects to TagResponse schemas."""
-    return [
-        TagResponse(id=tag.id, name=tag.name, slug=tag.slug, color=tag.color)
-        for tag in tags
-    ]
+    return [TagResponse(id=tag.id, name=tag.name, slug=tag.slug, color=tag.color) for tag in tags]
 
 
 def get_paperless_client(

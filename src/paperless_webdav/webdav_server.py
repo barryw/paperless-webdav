@@ -102,8 +102,13 @@ def create_webdav_app(
 
     # Create authenticator class that captures our configuration
     AuthenticatorClass = _make_authenticator_class(
-        paperless_url, auth_mode, encryption_key, ldap_url, ldap_base_dn,
-        ldap_bind_dn, ldap_bind_password
+        paperless_url,
+        auth_mode,
+        encryption_key,
+        ldap_url,
+        ldap_base_dn,
+        ldap_bind_dn,
+        ldap_bind_password,
     )
 
     config = {

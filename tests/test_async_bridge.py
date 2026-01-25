@@ -7,6 +7,7 @@ from paperless_webdav.async_bridge import run_async
 
 def test_run_async_returns_result():
     """run_async should execute coroutine and return result."""
+
     async def coro():
         return "hello"
 
@@ -16,6 +17,7 @@ def test_run_async_returns_result():
 
 def test_run_async_propagates_exceptions():
     """run_async should propagate exceptions from coroutine."""
+
     async def failing_coro():
         raise ValueError("test error")
 
@@ -25,6 +27,7 @@ def test_run_async_propagates_exceptions():
 
 def test_run_async_works_from_sync_context():
     """run_async should work when no event loop is running."""
+
     async def fetch_data():
         await asyncio.sleep(0.001)
         return {"data": 42}
@@ -35,6 +38,7 @@ def test_run_async_works_from_sync_context():
 
 def test_run_async_with_awaited_operations():
     """run_async should handle coroutines with multiple await points."""
+
     async def multi_await():
         await asyncio.sleep(0.001)
         result = await asyncio.sleep(0.001, result="intermediate")
@@ -69,6 +73,7 @@ def test_run_async_from_existing_loop():
 
 def test_run_async_propagates_custom_exception():
     """run_async should propagate custom exceptions with their attributes."""
+
     class CustomError(Exception):
         def __init__(self, message, code):
             super().__init__(message)

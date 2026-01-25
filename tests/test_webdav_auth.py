@@ -215,7 +215,9 @@ class TestOIDCModeTokenLoading:
         auth = PaperlessBasicAuthenticator(
             "http://paperless.test",
             auth_mode=settings.auth_mode,
-            encryption_key=settings.encryption_key.get_secret_value() if settings.encryption_key else None,
+            encryption_key=settings.encryption_key.get_secret_value()
+            if settings.encryption_key
+            else None,
         )
 
         with patch("paperless_webdav.webdav_auth.run_async") as mock_run:

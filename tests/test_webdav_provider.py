@@ -107,12 +107,12 @@ class TestSanitizeFilename:
     def test_removes_dangerous_characters(self) -> None:
         """Filesystem-unsafe characters should be removed."""
         # Remove: < > : " | ? *
-        assert sanitize_filename('file<name>') == "filename"
-        assert sanitize_filename('file:name') == "filename"
+        assert sanitize_filename("file<name>") == "filename"
+        assert sanitize_filename("file:name") == "filename"
         assert sanitize_filename('file"name') == "filename"
-        assert sanitize_filename('file|name') == "filename"
-        assert sanitize_filename('file?name') == "filename"
-        assert sanitize_filename('file*name') == "filename"
+        assert sanitize_filename("file|name") == "filename"
+        assert sanitize_filename("file?name") == "filename"
+        assert sanitize_filename("file*name") == "filename"
 
     def test_handles_empty_string(self) -> None:
         """Empty or all-unsafe strings should return a default name."""
@@ -147,9 +147,7 @@ class TestPaperlessProvider:
 
         assert isinstance(resource, RootResource)
 
-    def test_resolves_share_path(
-        self, mock_environ: dict[str, Any], mock_share: MagicMock
-    ) -> None:
+    def test_resolves_share_path(self, mock_environ: dict[str, Any], mock_share: MagicMock) -> None:
         """Provider should return ShareResource for /{sharename}."""
         shares: dict[str, Any] = {"tax2025": mock_share}
         provider = PaperlessProvider(shares=shares)
@@ -158,9 +156,7 @@ class TestPaperlessProvider:
 
         assert isinstance(resource, ShareResource)
 
-    def test_returns_none_for_unknown_share(
-        self, mock_environ: dict[str, Any]
-    ) -> None:
+    def test_returns_none_for_unknown_share(self, mock_environ: dict[str, Any]) -> None:
         """Provider should return None for non-existent shares."""
         shares: dict[str, Any] = {}
         provider = PaperlessProvider(shares=shares)
@@ -177,17 +173,11 @@ class TestPaperlessProvider:
     ) -> None:
         """Provider should return DocumentResource for /{share}/{doc}.pdf."""
         shares: dict[str, Any] = {"tax2025": mock_share}
-        documents_by_share: dict[str, list[PaperlessDocument]] = {
-            "tax2025": sample_documents
-        }
-        provider = PaperlessProvider(
-            shares=shares, documents_by_share=documents_by_share
-        )
+        documents_by_share: dict[str, list[PaperlessDocument]] = {"tax2025": sample_documents}
+        provider = PaperlessProvider(shares=shares, documents_by_share=documents_by_share)
 
         # Document filename is sanitized title + .pdf
-        resource = provider.get_resource_inst(
-            "/tax2025/Invoice 001.pdf", mock_environ
-        )
+        resource = provider.get_resource_inst("/tax2025/Invoice 001.pdf", mock_environ)
 
         assert isinstance(resource, DocumentResource)
 
@@ -239,9 +229,7 @@ class TestRootResource:
 
         assert set(member_names) == {"tax2025", "invoices"}
 
-    def test_get_member_names_empty_when_no_shares(
-        self, mock_environ: dict[str, Any]
-    ) -> None:
+    def test_get_member_names_empty_when_no_shares(self, mock_environ: dict[str, Any]) -> None:
         """RootResource should return empty list when no shares exist."""
         shares: dict[str, Any] = {}
         provider = PaperlessProvider(shares=shares)
@@ -277,9 +265,7 @@ class TestShareResource:
         shares: dict[str, Any] = {"tax2025": mock_share}
         provider = PaperlessProvider(shares=shares)
 
-        share_resource = ShareResource(
-            "/tax2025", mock_environ, provider, mock_share
-        )
+        share_resource = ShareResource("/tax2025", mock_environ, provider, mock_share)
 
         assert share_resource.get_display_name() == "tax2025"
 
@@ -291,16 +277,10 @@ class TestShareResource:
     ) -> None:
         """ShareResource should list document filenames."""
         shares: dict[str, Any] = {"tax2025": mock_share}
-        documents_by_share: dict[str, list[PaperlessDocument]] = {
-            "tax2025": sample_documents
-        }
-        provider = PaperlessProvider(
-            shares=shares, documents_by_share=documents_by_share
-        )
+        documents_by_share: dict[str, list[PaperlessDocument]] = {"tax2025": sample_documents}
+        provider = PaperlessProvider(shares=shares, documents_by_share=documents_by_share)
 
-        share_resource = ShareResource(
-            "/tax2025", mock_environ, provider, mock_share
-        )
+        share_resource = ShareResource("/tax2025", mock_environ, provider, mock_share)
         member_names = share_resource.get_member_names()
 
         # Documents are listed as {title}.pdf
@@ -315,13 +295,9 @@ class TestShareResource:
         mock_share.done_folder_name = "completed"
         shares: dict[str, Any] = {"tax2025": mock_share}
         documents_by_share: dict[str, list[PaperlessDocument]] = {"tax2025": []}
-        provider = PaperlessProvider(
-            shares=shares, documents_by_share=documents_by_share
-        )
+        provider = PaperlessProvider(shares=shares, documents_by_share=documents_by_share)
 
-        share_resource = ShareResource(
-            "/tax2025", mock_environ, provider, mock_share
-        )
+        share_resource = ShareResource("/tax2025", mock_environ, provider, mock_share)
         member_names = share_resource.get_member_names()
 
         assert "completed" in member_names
@@ -460,16 +436,10 @@ class TestDocumentFilenameSanitization:
             tags=[],
         )
         shares: dict[str, Any] = {"tax2025": mock_share}
-        documents_by_share: dict[str, list[PaperlessDocument]] = {
-            "tax2025": [document]
-        }
-        provider = PaperlessProvider(
-            shares=shares, documents_by_share=documents_by_share
-        )
+        documents_by_share: dict[str, list[PaperlessDocument]] = {"tax2025": [document]}
+        provider = PaperlessProvider(shares=shares, documents_by_share=documents_by_share)
 
-        share_resource = ShareResource(
-            "/tax2025", mock_environ, provider, mock_share
-        )
+        share_resource = ShareResource("/tax2025", mock_environ, provider, mock_share)
         member_names = share_resource.get_member_names()
 
         # Unsafe chars should be removed
@@ -488,16 +458,10 @@ class TestDocumentFilenameSanitization:
             tags=[],
         )
         shares: dict[str, Any] = {"tax2025": mock_share}
-        documents_by_share: dict[str, list[PaperlessDocument]] = {
-            "tax2025": [document]
-        }
-        provider = PaperlessProvider(
-            shares=shares, documents_by_share=documents_by_share
-        )
+        documents_by_share: dict[str, list[PaperlessDocument]] = {"tax2025": [document]}
+        provider = PaperlessProvider(shares=shares, documents_by_share=documents_by_share)
 
-        resource = provider.get_resource_inst(
-            "/tax2025/Invoice JanFeb 2025.pdf", mock_environ
-        )
+        resource = provider.get_resource_inst("/tax2025/Invoice JanFeb 2025.pdf", mock_environ)
 
         assert isinstance(resource, DocumentResource)
         assert resource.document.id == 99
@@ -519,9 +483,7 @@ class TestDoneFolderResource:
         shares: dict[str, Any] = {"tax2025": mock_share}
         provider = PaperlessProvider(shares=shares)
 
-        done_folder = DoneFolderResource(
-            "/tax2025/completed", mock_environ, provider, mock_share
-        )
+        done_folder = DoneFolderResource("/tax2025/completed", mock_environ, provider, mock_share)
 
         assert done_folder.get_display_name() == "completed"
 
@@ -561,9 +523,7 @@ class TestDoneFolderResource:
             paperless_url="http://paperless.local",
         )
 
-        with patch.object(
-            provider, "_create_client", return_value=mock_paperless_client
-        ):
+        with patch.object(provider, "_create_client", return_value=mock_paperless_client):
             done_folder = DoneFolderResource(
                 "/inbox/processed", mock_environ_with_token, provider, mock_share
             )
@@ -597,9 +557,7 @@ class TestDoneFolderResource:
             paperless_url="http://paperless.local",
         )
 
-        with patch.object(
-            provider, "_create_client", return_value=mock_paperless_client
-        ):
+        with patch.object(provider, "_create_client", return_value=mock_paperless_client):
             done_folder = DoneFolderResource(
                 "/inbox/done", mock_environ_with_token, provider, mock_share
             )
@@ -646,9 +604,7 @@ class TestDoneFolderResource:
             paperless_url="http://paperless.local",
         )
 
-        with patch.object(
-            provider, "_create_client", return_value=mock_paperless_client
-        ):
+        with patch.object(provider, "_create_client", return_value=mock_paperless_client):
             done_folder = DoneFolderResource(
                 "/inbox/processed", mock_environ_with_token, provider, mock_share
             )
@@ -683,9 +639,7 @@ class TestDoneFolderResource:
             paperless_url="http://paperless.local",
         )
 
-        with patch.object(
-            provider, "_create_client", return_value=mock_paperless_client
-        ):
+        with patch.object(provider, "_create_client", return_value=mock_paperless_client):
             done_folder = DoneFolderResource(
                 "/inbox/processed", mock_environ_with_token, provider, mock_share
             )
@@ -718,12 +672,8 @@ class TestDoneFolderResource:
             paperless_url="http://paperless.local",
         )
 
-        with patch.object(
-            provider, "_create_client", return_value=mock_paperless_client
-        ):
-            share_resource = ShareResource(
-                "/inbox", mock_environ_with_token, provider, mock_share
-            )
+        with patch.object(provider, "_create_client", return_value=mock_paperless_client):
+            share_resource = ShareResource("/inbox", mock_environ_with_token, provider, mock_share)
             member = share_resource.get_member("completed")
 
         assert isinstance(member, DoneFolderResource)
@@ -772,9 +722,7 @@ class TestDoneFolderResource:
             paperless_url="http://paperless.local",
         )
 
-        with patch.object(
-            provider, "_create_client", return_value=mock_paperless_client
-        ):
+        with patch.object(provider, "_create_client", return_value=mock_paperless_client):
             done_folder = DoneFolderResource(
                 "/inbox/done", mock_environ_with_token, provider, mock_share
             )
@@ -846,9 +794,7 @@ class TestDynamicDocumentLoading:
             paperless_url="http://paperless.local",
         )
 
-        with patch.object(
-            provider, "_create_client", return_value=mock_paperless_client
-        ):
+        with patch.object(provider, "_create_client", return_value=mock_paperless_client):
             share_resource = ShareResource(
                 "/tax2025", mock_environ_with_token, provider, mock_share
             )
@@ -877,9 +823,7 @@ class TestDynamicDocumentLoading:
             paperless_url="http://paperless.local",
         )
 
-        with patch.object(
-            provider, "_create_client", return_value=mock_paperless_client
-        ):
+        with patch.object(provider, "_create_client", return_value=mock_paperless_client):
             share_resource = ShareResource(
                 "/tax2025", mock_environ_with_token, provider, mock_share
             )
@@ -910,9 +854,7 @@ class TestDynamicDocumentLoading:
             paperless_url="http://paperless.local",
         )
 
-        with patch.object(
-            provider, "_create_client", return_value=mock_paperless_client
-        ):
+        with patch.object(provider, "_create_client", return_value=mock_paperless_client):
             share_resource = ShareResource(
                 "/tax2025", mock_environ_with_token, provider, mock_share
             )
@@ -945,9 +887,7 @@ class TestDocumentContentDownload:
             paperless_url="http://paperless.local",
         )
 
-        with patch.object(
-            provider, "_create_client", return_value=mock_paperless_client
-        ):
+        with patch.object(provider, "_create_client", return_value=mock_paperless_client):
             doc_resource = DocumentResource(
                 "/tax2025/Tax Invoice 2025.pdf",
                 mock_environ_with_token,
@@ -958,9 +898,7 @@ class TestDocumentContentDownload:
 
         # get_content returns a BytesIO stream
         assert content_stream.read() == expected_content
-        mock_paperless_client.download_document.assert_called_once_with(
-            sample_document.id
-        )
+        mock_paperless_client.download_document.assert_called_once_with(sample_document.id)
 
     def test_document_get_content_returns_stream(
         self,
@@ -979,9 +917,7 @@ class TestDocumentContentDownload:
             paperless_url="http://paperless.local",
         )
 
-        with patch.object(
-            provider, "_create_client", return_value=mock_paperless_client
-        ):
+        with patch.object(provider, "_create_client", return_value=mock_paperless_client):
             doc_resource = DocumentResource(
                 "/tax2025/Tax Invoice 2025.pdf",
                 mock_environ_with_token,
@@ -1014,9 +950,7 @@ class TestDocumentContentDownload:
             paperless_url="http://paperless.local",
         )
 
-        with patch.object(
-            provider, "_create_client", return_value=mock_paperless_client
-        ):
+        with patch.object(provider, "_create_client", return_value=mock_paperless_client):
             doc_resource = DocumentResource(
                 "/tax2025/Tax Invoice 2025.pdf",
                 mock_environ_with_token,
@@ -1082,9 +1016,7 @@ class TestBackwardCompatibility:
     ) -> None:
         """Provider should still accept documents_by_share for static mode."""
         shares: dict[str, Any] = {"tax2025": mock_share}
-        documents_by_share: dict[str, list[PaperlessDocument]] = {
-            "tax2025": sample_documents
-        }
+        documents_by_share: dict[str, list[PaperlessDocument]] = {"tax2025": sample_documents}
 
         # Should work without paperless_url
         provider = PaperlessProvider(
@@ -1092,9 +1024,7 @@ class TestBackwardCompatibility:
             documents_by_share=documents_by_share,
         )
 
-        share_resource = ShareResource(
-            "/tax2025", mock_environ, provider, mock_share
-        )
+        share_resource = ShareResource("/tax2025", mock_environ, provider, mock_share)
         member_names = share_resource.get_member_names()
 
         assert "Invoice 001.pdf" in member_names
@@ -1127,9 +1057,7 @@ class TestBackwardCompatibility:
             paperless_url="http://paperless.local",
         )
 
-        with patch.object(
-            provider, "_create_client", return_value=mock_paperless_client
-        ):
+        with patch.object(provider, "_create_client", return_value=mock_paperless_client):
             share_resource = ShareResource(
                 "/tax2025", mock_environ_with_token, provider, mock_share
             )
@@ -1174,16 +1102,10 @@ class TestFilenameCollision:
             tags=[],
         )
         shares: dict[str, Any] = {"tax2025": mock_share}
-        documents_by_share: dict[str, list[PaperlessDocument]] = {
-            "tax2025": [doc1, doc2]
-        }
-        provider = PaperlessProvider(
-            shares=shares, documents_by_share=documents_by_share
-        )
+        documents_by_share: dict[str, list[PaperlessDocument]] = {"tax2025": [doc1, doc2]}
+        provider = PaperlessProvider(shares=shares, documents_by_share=documents_by_share)
 
-        share_resource = ShareResource(
-            "/tax2025", mock_environ, provider, mock_share
-        )
+        share_resource = ShareResource("/tax2025", mock_environ, provider, mock_share)
         member_names = share_resource.get_member_names()
 
         # First document gets original name, second gets disambiguated name
@@ -1217,13 +1139,9 @@ class TestFilenameCollision:
             tags=[],
         )
         shares: dict[str, Any] = {"tax2025": mock_share}
-        documents_by_share: dict[str, list[PaperlessDocument]] = {
-            "tax2025": [doc1, doc2]
-        }
+        documents_by_share: dict[str, list[PaperlessDocument]] = {"tax2025": [doc1, doc2]}
 
-        provider = PaperlessProvider(
-            shares=shares, documents_by_share=documents_by_share
-        )
+        provider = PaperlessProvider(shares=shares, documents_by_share=documents_by_share)
 
         # Provider's static index should have both documents accessible
         assert "Report.pdf" in provider._doc_by_filename["tax2025"]
@@ -1252,12 +1170,8 @@ class TestFilenameCollision:
             tags=[],
         )
         shares: dict[str, Any] = {"tax2025": mock_share}
-        documents_by_share: dict[str, list[PaperlessDocument]] = {
-            "tax2025": [doc1, doc2]
-        }
-        provider = PaperlessProvider(
-            shares=shares, documents_by_share=documents_by_share
-        )
+        documents_by_share: dict[str, list[PaperlessDocument]] = {"tax2025": [doc1, doc2]}
+        provider = PaperlessProvider(shares=shares, documents_by_share=documents_by_share)
 
         # Resolve the disambiguated filename
         resource = provider.get_resource_inst("/tax2025/Contract_200.pdf", mock_environ)
@@ -1320,12 +1234,8 @@ class TestDoneTagFiltering:
             paperless_url="http://paperless.local",
         )
 
-        with patch.object(
-            provider, "_create_client", return_value=mock_paperless_client
-        ):
-            share_resource = ShareResource(
-                "/inbox", mock_environ_with_token, provider, mock_share
-            )
+        with patch.object(provider, "_create_client", return_value=mock_paperless_client):
+            share_resource = ShareResource("/inbox", mock_environ_with_token, provider, mock_share)
             members = share_resource.get_member_names()
 
         # Root should have "New Doc.pdf" and the "processed" folder
@@ -1364,12 +1274,8 @@ class TestDoneTagFiltering:
             paperless_url="http://paperless.local",
         )
 
-        with patch.object(
-            provider, "_create_client", return_value=mock_paperless_client
-        ):
-            share_resource = ShareResource(
-                "/inbox", mock_environ_with_token, provider, mock_share
-            )
+        with patch.object(provider, "_create_client", return_value=mock_paperless_client):
+            share_resource = ShareResource("/inbox", mock_environ_with_token, provider, mock_share)
             share_resource.get_member_names()
 
         # Should exclude both draft (explicit) and completed (done_tag)
@@ -1404,12 +1310,8 @@ class TestDoneTagFiltering:
             paperless_url="http://paperless.local",
         )
 
-        with patch.object(
-            provider, "_create_client", return_value=mock_paperless_client
-        ):
-            share_resource = ShareResource(
-                "/inbox", mock_environ_with_token, provider, mock_share
-            )
+        with patch.object(provider, "_create_client", return_value=mock_paperless_client):
+            share_resource = ShareResource("/inbox", mock_environ_with_token, provider, mock_share)
             share_resource.get_member_names()
 
         # Should NOT exclude completed tag when done_folder is disabled
@@ -1442,12 +1344,8 @@ class TestDoneTagFiltering:
             paperless_url="http://paperless.local",
         )
 
-        with patch.object(
-            provider, "_create_client", return_value=mock_paperless_client
-        ):
-            share_resource = ShareResource(
-                "/inbox", mock_environ_with_token, provider, mock_share
-            )
+        with patch.object(provider, "_create_client", return_value=mock_paperless_client):
+            share_resource = ShareResource("/inbox", mock_environ_with_token, provider, mock_share)
             share_resource.get_member_names()
 
         # Should have empty exclude_tag_ids since done_tag is None
@@ -1481,12 +1379,8 @@ class TestDoneTagFiltering:
             paperless_url="http://paperless.local",
         )
 
-        with patch.object(
-            provider, "_create_client", return_value=mock_paperless_client
-        ):
-            share_resource = ShareResource(
-                "/inbox", mock_environ_with_token, provider, mock_share
-            )
+        with patch.object(provider, "_create_client", return_value=mock_paperless_client):
+            share_resource = ShareResource("/inbox", mock_environ_with_token, provider, mock_share)
             # Should not raise, even though done_tag doesn't exist
             share_resource.get_member_names()
 
@@ -1541,9 +1435,7 @@ class TestDocumentMoveToDoneFolder:
             paperless_url="http://paperless.local",
         )
 
-        with patch.object(
-            provider, "_create_client", return_value=mock_paperless_client
-        ):
+        with patch.object(provider, "_create_client", return_value=mock_paperless_client):
             resource = DocumentResource(
                 "/inbox/Doc.pdf",
                 mock_environ_with_token,
@@ -1586,9 +1478,7 @@ class TestDocumentMoveToDoneFolder:
             paperless_url="http://paperless.local",
         )
 
-        with patch.object(
-            provider, "_create_client", return_value=mock_paperless_client
-        ):
+        with patch.object(provider, "_create_client", return_value=mock_paperless_client):
             resource = DocumentResource(
                 "/inbox/Doc.pdf",
                 mock_environ_with_token,
@@ -1634,9 +1524,7 @@ class TestDocumentMoveToDoneFolder:
             paperless_url="http://paperless.local",
         )
 
-        with patch.object(
-            provider, "_create_client", return_value=mock_paperless_client
-        ):
+        with patch.object(provider, "_create_client", return_value=mock_paperless_client):
             resource = DocumentResource(
                 "/inbox/Doc.pdf",
                 mock_environ_with_token,
@@ -1689,12 +1577,8 @@ class TestDocumentMoveToDoneFolder:
             paperless_url="http://paperless.local",
         )
 
-        with patch.object(
-            provider, "_create_client", return_value=mock_paperless_client
-        ):
-            with patch(
-                "paperless_webdav.webdav_provider.run_async"
-            ) as mock_run_async:
+        with patch.object(provider, "_create_client", return_value=mock_paperless_client):
+            with patch("paperless_webdav.webdav_provider.run_async") as mock_run_async:
                 # Configure run_async to return the tags on first call
                 mock_run_async.side_effect = [
                     [
@@ -1751,9 +1635,7 @@ class TestDocumentMoveToDoneFolder:
             paperless_url="http://paperless.local",
         )
 
-        with patch.object(
-            provider, "_create_client", return_value=mock_paperless_client
-        ):
+        with patch.object(provider, "_create_client", return_value=mock_paperless_client):
             resource = DocumentResource(
                 "/inbox/Doc.pdf",
                 mock_environ_with_token,
@@ -1789,9 +1671,7 @@ class TestDocumentMoveToDoneFolder:
             paperless_url="http://paperless.local",
         )
 
-        with patch.object(
-            provider, "_create_client", return_value=mock_paperless_client
-        ):
+        with patch.object(provider, "_create_client", return_value=mock_paperless_client):
             resource = DocumentResource(
                 "/inbox/Doc.pdf",
                 mock_environ_with_token,
@@ -1840,12 +1720,8 @@ class TestDocumentMoveToDoneFolder:
             paperless_url="http://paperless.local",
         )
 
-        with patch.object(
-            provider, "_create_client", return_value=mock_paperless_client
-        ):
-            share_resource = ShareResource(
-                "/inbox", mock_environ_with_token, provider, mock_share
-            )
+        with patch.object(provider, "_create_client", return_value=mock_paperless_client):
+            share_resource = ShareResource("/inbox", mock_environ_with_token, provider, mock_share)
             doc_resource = share_resource.get_member("Test Doc.pdf")
 
         assert doc_resource is not None
@@ -1886,9 +1762,7 @@ class TestDocumentMoveToDoneFolder:
             paperless_url="http://paperless.local",
         )
 
-        with patch.object(
-            provider, "_create_client", return_value=mock_paperless_client
-        ):
+        with patch.object(provider, "_create_client", return_value=mock_paperless_client):
             done_folder = DoneFolderResource(
                 "/inbox/done", mock_environ_with_token, provider, mock_share
             )
@@ -1940,9 +1814,7 @@ class TestDocumentMoveFromDoneFolder:
             paperless_url="http://paperless.local",
         )
 
-        with patch.object(
-            provider, "_create_client", return_value=mock_paperless_client
-        ):
+        with patch.object(provider, "_create_client", return_value=mock_paperless_client):
             resource = DocumentResource(
                 "/inbox/done/Doc.pdf",
                 mock_environ_with_token,
@@ -1986,9 +1858,7 @@ class TestDocumentMoveFromDoneFolder:
             paperless_url="http://paperless.local",
         )
 
-        with patch.object(
-            provider, "_create_client", return_value=mock_paperless_client
-        ):
+        with patch.object(provider, "_create_client", return_value=mock_paperless_client):
             resource = DocumentResource(
                 "/inbox/done/Doc.pdf",
                 mock_environ_with_token,
@@ -2050,9 +1920,7 @@ class TestDocumentMoveFromDoneFolder:
                 return mock_paperless_client  # For tag lookup
             return None  # For the actual move operation
 
-        with patch.object(
-            provider, "_create_client", side_effect=create_client_side_effect
-        ):
+        with patch.object(provider, "_create_client", side_effect=create_client_side_effect):
             resource = DocumentResource(
                 "/inbox/done/Doc.pdf",
                 mock_environ_with_token,
@@ -2105,9 +1973,7 @@ class TestDocumentMoveFromDoneFolder:
             paperless_url="http://paperless.local",
         )
 
-        with patch.object(
-            provider, "_create_client", return_value=mock_paperless_client
-        ):
+        with patch.object(provider, "_create_client", return_value=mock_paperless_client):
             done_folder = DoneFolderResource(
                 "/inbox/done", mock_environ_with_token, provider, mock_share
             )
@@ -2150,12 +2016,8 @@ class TestDocumentMoveFromDoneFolder:
             paperless_url="http://paperless.local",
         )
 
-        with patch.object(
-            provider, "_create_client", return_value=mock_paperless_client
-        ):
-            share_resource = ShareResource(
-                "/inbox", mock_environ_with_token, provider, mock_share
-            )
+        with patch.object(provider, "_create_client", return_value=mock_paperless_client):
+            share_resource = ShareResource("/inbox", mock_environ_with_token, provider, mock_share)
             doc_resource = share_resource.get_member("Root Doc.pdf")
 
         assert doc_resource is not None
@@ -2190,9 +2052,7 @@ class TestDocumentMoveFromDoneFolder:
             paperless_url="http://paperless.local",
         )
 
-        with patch.object(
-            provider, "_create_client", return_value=mock_paperless_client
-        ):
+        with patch.object(provider, "_create_client", return_value=mock_paperless_client):
             resource = DocumentResource(
                 "/inbox/Doc.pdf",
                 mock_environ_with_token,
@@ -2222,9 +2082,7 @@ class TestDownloadErrorHandling:
         capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Download errors should be caught, logged, and return empty bytes."""
-        mock_paperless_client.download_document.side_effect = Exception(
-            "Connection timeout"
-        )
+        mock_paperless_client.download_document.side_effect = Exception("Connection timeout")
 
         shares: dict[str, Any] = {"tax2025": mock_share}
         provider = PaperlessProvider(
@@ -2232,9 +2090,7 @@ class TestDownloadErrorHandling:
             paperless_url="http://paperless.local",
         )
 
-        with patch.object(
-            provider, "_create_client", return_value=mock_paperless_client
-        ):
+        with patch.object(provider, "_create_client", return_value=mock_paperless_client):
             doc_resource = DocumentResource(
                 "/tax2025/Tax Invoice 2025.pdf",
                 mock_environ_with_token,
@@ -2265,9 +2121,7 @@ class TestDownloadErrorHandling:
             paperless_url="http://paperless.local",
         )
 
-        with patch.object(
-            provider, "_create_client", return_value=mock_paperless_client
-        ):
+        with patch.object(provider, "_create_client", return_value=mock_paperless_client):
             doc_resource = DocumentResource(
                 "/tax2025/Tax Invoice 2025.pdf",
                 mock_environ_with_token,
@@ -2300,9 +2154,7 @@ class TestDownloadErrorHandling:
             paperless_url="http://paperless.local",
         )
 
-        with patch.object(
-            provider, "_create_client", return_value=mock_paperless_client
-        ):
+        with patch.object(provider, "_create_client", return_value=mock_paperless_client):
             doc_resource = DocumentResource(
                 "/tax2025/Tax Invoice 2025.pdf",
                 mock_environ_with_token,
@@ -2357,9 +2209,7 @@ class TestMoveValidation:
             paperless_url="http://paperless.local",
         )
 
-        with patch.object(
-            provider, "_create_client", return_value=mock_paperless_client
-        ):
+        with patch.object(provider, "_create_client", return_value=mock_paperless_client):
             resource = DocumentResource(
                 "/share1/Doc.pdf",
                 mock_environ_with_token,
@@ -2405,9 +2255,7 @@ class TestMoveValidation:
             paperless_url="http://paperless.local",
         )
 
-        with patch.object(
-            provider, "_create_client", return_value=mock_paperless_client
-        ):
+        with patch.object(provider, "_create_client", return_value=mock_paperless_client):
             resource = DocumentResource(
                 "/inbox/Doc.pdf",
                 mock_environ_with_token,
@@ -2453,9 +2301,7 @@ class TestMoveValidation:
             paperless_url="http://paperless.local",
         )
 
-        with patch.object(
-            provider, "_create_client", return_value=mock_paperless_client
-        ):
+        with patch.object(provider, "_create_client", return_value=mock_paperless_client):
             resource = DocumentResource(
                 "/inbox/Doc.pdf",
                 mock_environ_with_token,
@@ -2501,9 +2347,7 @@ class TestMoveValidation:
             paperless_url="http://paperless.local",
         )
 
-        with patch.object(
-            provider, "_create_client", return_value=mock_paperless_client
-        ):
+        with patch.object(provider, "_create_client", return_value=mock_paperless_client):
             resource = DocumentResource(
                 "/inbox/Doc.pdf",
                 mock_environ_with_token,
@@ -2541,9 +2385,7 @@ class TestMoveValidation:
             paperless_url="http://paperless.local",
         )
 
-        with patch.object(
-            provider, "_create_client", return_value=mock_paperless_client
-        ):
+        with patch.object(provider, "_create_client", return_value=mock_paperless_client):
             resource = DocumentResource(
                 "/inbox/Doc.pdf",
                 mock_environ_with_token,
@@ -2592,9 +2434,7 @@ class TestMoveValidation:
             paperless_url="http://paperless.local",
         )
 
-        with patch.object(
-            provider, "_create_client", return_value=mock_paperless_client
-        ):
+        with patch.object(provider, "_create_client", return_value=mock_paperless_client):
             resource = DocumentResource(
                 "/inbox/Doc.pdf",
                 mock_environ_with_token,
@@ -2642,9 +2482,7 @@ class TestMoveValidation:
             paperless_url="http://paperless.local",
         )
 
-        with patch.object(
-            provider, "_create_client", return_value=mock_paperless_client
-        ):
+        with patch.object(provider, "_create_client", return_value=mock_paperless_client):
             resource = DocumentResource(
                 "/inbox/done/Doc.pdf",
                 mock_environ_with_token,
@@ -2688,9 +2526,7 @@ class TestMoveValidation:
             paperless_url="http://paperless.local",
         )
 
-        with patch.object(
-            provider, "_create_client", return_value=mock_paperless_client
-        ):
+        with patch.object(provider, "_create_client", return_value=mock_paperless_client):
             resource = DocumentResource(
                 "/inbox/Doc.pdf",
                 mock_environ_with_token,
@@ -2738,9 +2574,7 @@ class TestMoveValidation:
             paperless_url="http://paperless.local",
         )
 
-        with patch.object(
-            provider, "_create_client", return_value=mock_paperless_client
-        ):
+        with patch.object(provider, "_create_client", return_value=mock_paperless_client):
             resource = DocumentResource(
                 "/share1/Doc.pdf",
                 mock_environ_with_token,

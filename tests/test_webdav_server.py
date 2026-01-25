@@ -39,9 +39,7 @@ class TestCreateWebdavApp:
 
     def test_creates_basic_authenticator(self, mock_settings):
         """Should create a PaperlessBasicAuthenticator with paperless_url."""
-        with patch(
-            "paperless_webdav.webdav_server.PaperlessBasicAuthenticator"
-        ) as mock_auth:
+        with patch("paperless_webdav.webdav_server.PaperlessBasicAuthenticator") as mock_auth:
             with patch("paperless_webdav.webdav_server.PaperlessProvider"):
                 with patch("paperless_webdav.webdav_server.WsgiDAVApp"):
                     create_webdav_app(
@@ -57,9 +55,7 @@ class TestCreateWebdavApp:
 
     def test_creates_authenticator_with_oidc_mode(self, mock_settings):
         """Should pass auth_mode and encryption_key to authenticator for OIDC."""
-        with patch(
-            "paperless_webdav.webdav_server.PaperlessBasicAuthenticator"
-        ) as mock_auth:
+        with patch("paperless_webdav.webdav_server.PaperlessBasicAuthenticator") as mock_auth:
             with patch("paperless_webdav.webdav_server.PaperlessProvider"):
                 with patch("paperless_webdav.webdav_server.WsgiDAVApp"):
                     create_webdav_app(
@@ -81,9 +77,7 @@ class TestCreateWebdavApp:
 
         with patch("paperless_webdav.webdav_server.PaperlessBasicAuthenticator"):
             with patch("paperless_webdav.webdav_server.PaperlessProvider"):
-                with patch(
-                    "paperless_webdav.webdav_server.WsgiDAVApp"
-                ) as mock_wsgi_app:
+                with patch("paperless_webdav.webdav_server.WsgiDAVApp") as mock_wsgi_app:
                     create_webdav_app(
                         paperless_url="http://paperless.test",
                         share_loader=share_loader,
@@ -98,9 +92,7 @@ class TestCreateWebdavApp:
         """Should configure HTTP Basic auth and disable digest auth."""
         with patch("paperless_webdav.webdav_server.PaperlessBasicAuthenticator"):
             with patch("paperless_webdav.webdav_server.PaperlessProvider"):
-                with patch(
-                    "paperless_webdav.webdav_server.WsgiDAVApp"
-                ) as mock_wsgi_app:
+                with patch("paperless_webdav.webdav_server.WsgiDAVApp") as mock_wsgi_app:
                     create_webdav_app(
                         paperless_url="http://paperless.test",
                         share_loader=lambda: {},
@@ -115,15 +107,11 @@ class TestCreateWebdavApp:
     def test_has_provider_mapping_at_root(self, mock_settings):
         """Should map root path to PaperlessProvider."""
         with patch("paperless_webdav.webdav_server.PaperlessBasicAuthenticator"):
-            with patch(
-                "paperless_webdav.webdav_server.PaperlessProvider"
-            ) as mock_provider:
+            with patch("paperless_webdav.webdav_server.PaperlessProvider") as mock_provider:
                 mock_provider_instance = MagicMock()
                 mock_provider.return_value = mock_provider_instance
 
-                with patch(
-                    "paperless_webdav.webdav_server.WsgiDAVApp"
-                ) as mock_wsgi_app:
+                with patch("paperless_webdav.webdav_server.WsgiDAVApp") as mock_wsgi_app:
                     create_webdav_app(
                         paperless_url="http://paperless.test",
                         share_loader=lambda: {},
@@ -139,14 +127,10 @@ class TestWebDAVServer:
 
     def test_creates_cheroot_server_with_host_and_port(self, mock_settings):
         """Should create cheroot server bound to configured host and port."""
-        with patch(
-            "paperless_webdav.webdav_server.create_webdav_app"
-        ) as mock_create_app:
+        with patch("paperless_webdav.webdav_server.create_webdav_app") as mock_create_app:
             mock_create_app.return_value = MagicMock()
 
-            with patch(
-                "paperless_webdav.webdav_server.cheroot.wsgi.Server"
-            ) as mock_server:
+            with patch("paperless_webdav.webdav_server.cheroot.wsgi.Server") as mock_server:
                 mock_server_instance = MagicMock()
                 mock_server.return_value = mock_server_instance
 
@@ -163,9 +147,7 @@ class TestWebDAVServer:
 
     def test_creates_app_with_paperless_url(self, mock_settings):
         """Should create app with correct paperless_url."""
-        with patch(
-            "paperless_webdav.webdav_server.create_webdav_app"
-        ) as mock_create_app:
+        with patch("paperless_webdav.webdav_server.create_webdav_app") as mock_create_app:
             mock_create_app.return_value = MagicMock()
 
             with patch("paperless_webdav.webdav_server.cheroot.wsgi.Server"):
@@ -184,9 +166,7 @@ class TestWebDAVServer:
         """Should pass share_loader to create_webdav_app."""
         share_loader = MagicMock(return_value={"share1": {}})
 
-        with patch(
-            "paperless_webdav.webdav_server.create_webdav_app"
-        ) as mock_create_app:
+        with patch("paperless_webdav.webdav_server.create_webdav_app") as mock_create_app:
             mock_create_app.return_value = MagicMock()
 
             with patch("paperless_webdav.webdav_server.cheroot.wsgi.Server"):
@@ -204,14 +184,10 @@ class TestWebDAVServer:
         """Should pass created WSGI app to cheroot server."""
         mock_app = MagicMock()
 
-        with patch(
-            "paperless_webdav.webdav_server.create_webdav_app"
-        ) as mock_create_app:
+        with patch("paperless_webdav.webdav_server.create_webdav_app") as mock_create_app:
             mock_create_app.return_value = mock_app
 
-            with patch(
-                "paperless_webdav.webdav_server.cheroot.wsgi.Server"
-            ) as mock_server:
+            with patch("paperless_webdav.webdav_server.cheroot.wsgi.Server") as mock_server:
                 WebDAVServer(
                     host="0.0.0.0",
                     port=8081,
@@ -230,9 +206,7 @@ class TestWebDAVServerLifecycle:
     def test_start_calls_server_start(self, mock_settings):
         """start() should call server.start()."""
         with patch("paperless_webdav.webdav_server.create_webdav_app"):
-            with patch(
-                "paperless_webdav.webdav_server.cheroot.wsgi.Server"
-            ) as mock_server:
+            with patch("paperless_webdav.webdav_server.cheroot.wsgi.Server") as mock_server:
                 mock_server_instance = MagicMock()
                 mock_server.return_value = mock_server_instance
 
@@ -250,9 +224,7 @@ class TestWebDAVServerLifecycle:
     def test_stop_calls_server_stop(self, mock_settings):
         """stop() should call server.stop()."""
         with patch("paperless_webdav.webdav_server.create_webdav_app"):
-            with patch(
-                "paperless_webdav.webdav_server.cheroot.wsgi.Server"
-            ) as mock_server:
+            with patch("paperless_webdav.webdav_server.cheroot.wsgi.Server") as mock_server:
                 mock_server_instance = MagicMock()
                 mock_server.return_value = mock_server_instance
 
@@ -301,9 +273,7 @@ class TestWebDAVServerProperties:
         """Should store reference to created WSGI app."""
         mock_app = MagicMock()
 
-        with patch(
-            "paperless_webdav.webdav_server.create_webdav_app"
-        ) as mock_create_app:
+        with patch("paperless_webdav.webdav_server.create_webdav_app") as mock_create_app:
             mock_create_app.return_value = mock_app
 
             with patch("paperless_webdav.webdav_server.cheroot.wsgi.Server"):
@@ -321,9 +291,7 @@ class TestWebDAVServerProperties:
         mock_server_instance = MagicMock()
 
         with patch("paperless_webdav.webdav_server.create_webdav_app"):
-            with patch(
-                "paperless_webdav.webdav_server.cheroot.wsgi.Server"
-            ) as mock_server:
+            with patch("paperless_webdav.webdav_server.cheroot.wsgi.Server") as mock_server:
                 mock_server.return_value = mock_server_instance
 
                 server = WebDAVServer(

@@ -132,9 +132,7 @@ class TestGetUserShares:
         assert shares[0].name == "my-share"
 
     @pytest.mark.asyncio
-    async def test_returns_shares_user_is_allowed_on(
-        self, mock_session, test_user, other_user
-    ):
+    async def test_returns_shares_user_is_allowed_on(self, mock_session, test_user, other_user):
         """Should return shares where user is in allowed_users list."""
         from paperless_webdav.services.shares import get_user_shares
 
@@ -190,7 +188,7 @@ class TestGetShareByName:
         with patch(
             "paperless_webdav.services.shares._get_owner_external_id",
             new_callable=AsyncMock,
-            return_value=test_user.external_id
+            return_value=test_user.external_id,
         ):
             result = await get_share_by_name(mock_session, "my-share", test_user.external_id)
 
@@ -198,9 +196,7 @@ class TestGetShareByName:
         assert result.name == "my-share"
 
     @pytest.mark.asyncio
-    async def test_returns_share_when_allowed_user(
-        self, mock_session, test_user, other_user
-    ):
+    async def test_returns_share_when_allowed_user(self, mock_session, test_user, other_user):
         """Should return share when user is in allowed_users."""
         from paperless_webdav.services.shares import get_share_by_name
 
@@ -217,7 +213,7 @@ class TestGetShareByName:
         with patch(
             "paperless_webdav.services.shares._get_owner_external_id",
             new_callable=AsyncMock,
-            return_value=other_user.external_id
+            return_value=other_user.external_id,
         ):
             result = await get_share_by_name(mock_session, "shared-share", test_user.external_id)
 
@@ -225,9 +221,7 @@ class TestGetShareByName:
         assert result.name == "shared-share"
 
     @pytest.mark.asyncio
-    async def test_returns_none_when_not_authorized(
-        self, mock_session, test_user, other_user
-    ):
+    async def test_returns_none_when_not_authorized(self, mock_session, test_user, other_user):
         """Should return None when user is not authorized."""
         from paperless_webdav.services.shares import get_share_by_name
 
@@ -244,7 +238,7 @@ class TestGetShareByName:
         with patch(
             "paperless_webdav.services.shares._get_owner_external_id",
             new_callable=AsyncMock,
-            return_value=other_user.external_id
+            return_value=other_user.external_id,
         ):
             result = await get_share_by_name(mock_session, "private-share", test_user.external_id)
 
@@ -430,9 +424,7 @@ class TestDeleteShare:
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_returns_false_when_not_owner(
-        self, mock_session, test_user, other_user
-    ):
+    async def test_returns_false_when_not_owner(self, mock_session, test_user, other_user):
         """Should return False when user is not the owner."""
         from paperless_webdav.services.shares import delete_share
 
@@ -501,9 +493,7 @@ class TestStoreUserToken:
             mock_enc.encrypt.return_value = b"encrypted_token_data"
             mock_enc_class.return_value = mock_enc
 
-            await store_user_token(
-                mock_session, "testuser", "plain_token_123", encryption_key
-            )
+            await store_user_token(mock_session, "testuser", "plain_token_123", encryption_key)
 
             # Verify TokenEncryption was initialized with key
             mock_enc_class.assert_called_once_with(encryption_key)
@@ -525,9 +515,7 @@ class TestStoreUserToken:
             mock_enc.encrypt.return_value = b"encrypted_data"
             mock_enc_class.return_value = mock_enc
 
-            await store_user_token(
-                mock_session, "newuser", "token", encryption_key
-            )
+            await store_user_token(mock_session, "newuser", "token", encryption_key)
 
             # Verify a new user was added
             mock_session.add.assert_called()
@@ -548,9 +536,7 @@ class TestStoreUserToken:
             mock_enc.encrypt.return_value = b"new_encrypted_data"
             mock_enc_class.return_value = mock_enc
 
-            await store_user_token(
-                mock_session, test_user.external_id, "new_token", encryption_key
-            )
+            await store_user_token(mock_session, test_user.external_id, "new_token", encryption_key)
 
             # Verify the user's token was updated
             assert test_user.paperless_token_encrypted == b"new_encrypted_data"
@@ -576,9 +562,7 @@ class TestGetUserToken:
             mock_enc.decrypt.return_value = "decrypted_plain_token"
             mock_enc_class.return_value = mock_enc
 
-            result = await get_user_token(
-                mock_session, test_user.external_id, encryption_key
-            )
+            result = await get_user_token(mock_session, test_user.external_id, encryption_key)
 
             # Verify TokenEncryption was initialized with key
             mock_enc_class.assert_called_once_with(encryption_key)

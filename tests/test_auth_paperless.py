@@ -33,9 +33,7 @@ class TestLogin:
             return_value=Response(200, json={"token": "abc123"})
         )
 
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.post(
                 "/api/auth/login",
                 json={"username": "barry", "password": "secret"},
@@ -54,9 +52,7 @@ class TestLogin:
             return_value=Response(400, json={"non_field_errors": ["Unable to log in"]})
         )
 
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.post(
                 "/api/auth/login",
                 json={"username": "barry", "password": "wrong"},
@@ -69,13 +65,9 @@ class TestLogin:
     @pytest.mark.asyncio
     async def test_login_paperless_unavailable(self, app):
         """Paperless server errors should return 502."""
-        respx.post("http://paperless.test/api/token/").mock(
-            return_value=Response(500)
-        )
+        respx.post("http://paperless.test/api/token/").mock(return_value=Response(500))
 
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.post(
                 "/api/auth/login",
                 json={"username": "barry", "password": "secret"},
@@ -86,9 +78,7 @@ class TestLogin:
     @pytest.mark.asyncio
     async def test_login_missing_username(self, app):
         """Missing username should return 422."""
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.post(
                 "/api/auth/login",
                 json={"password": "secret"},
@@ -99,9 +89,7 @@ class TestLogin:
     @pytest.mark.asyncio
     async def test_login_missing_password(self, app):
         """Missing password should return 422."""
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.post(
                 "/api/auth/login",
                 json={"username": "barry"},
@@ -122,9 +110,7 @@ class TestLogout:
             return_value=Response(200, json={"token": "abc123"})
         )
 
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             # Login first
             login_response = await client.post(
                 "/api/auth/login",
@@ -149,9 +135,7 @@ class TestLogout:
     @pytest.mark.asyncio
     async def test_logout_without_session(self, app):
         """Logout without session should still succeed."""
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.post("/api/auth/logout")
 
         assert response.status_code == 200
@@ -168,9 +152,7 @@ class TestMe:
             return_value=Response(200, json={"token": "abc123"})
         )
 
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             # Login first
             login_response = await client.post(
                 "/api/auth/login",
@@ -191,9 +173,7 @@ class TestMe:
     @pytest.mark.asyncio
     async def test_me_unauthenticated(self, app):
         """Unauthenticated request should return 401."""
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get("/api/auth/me")
 
         assert response.status_code == 401
@@ -201,9 +181,7 @@ class TestMe:
     @pytest.mark.asyncio
     async def test_me_invalid_session(self, app):
         """Invalid session should return 401."""
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get(
                 "/api/auth/me",
                 cookies={"session": "invalid-session-token"},
@@ -217,9 +195,7 @@ class TestMe:
         """Expired session should return 401."""
         # This test relies on session expiry being configurable
         # For now, we test with a tampered/old session
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get(
                 "/api/auth/me",
                 cookies={"session": "tampered.session.token"},
@@ -239,9 +215,7 @@ class TestSessionManagement:
             return_value=Response(200, json={"token": "abc123"})
         )
 
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.post(
                 "/api/auth/login",
                 json={"username": "barry", "password": "secret"},
@@ -264,15 +238,16 @@ class TestSessionManagement:
         respx.get("http://paperless.test/api/tags/").mock(
             return_value=Response(
                 200,
-                json={"count": 1, "next": None, "previous": None, "results": [
-                    {"id": 1, "name": "tax", "slug": "tax", "color": "#ff0000"}
-                ]},
+                json={
+                    "count": 1,
+                    "next": None,
+                    "previous": None,
+                    "results": [{"id": 1, "name": "tax", "slug": "tax", "color": "#ff0000"}],
+                },
             )
         )
 
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             # Login
             login_response = await client.post(
                 "/api/auth/login",
@@ -309,9 +284,8 @@ class TestTokenLoadingFromDB:
 
             # Mock get_session to provide a database session
             mock_db_session = MagicMock()
-            with patch(
-                "paperless_webdav.auth.paperless.get_session"
-            ) as mock_get_session:
+            with patch("paperless_webdav.auth.paperless.get_session") as mock_get_session:
+
                 async def async_gen():
                     yield mock_db_session
 
@@ -339,18 +313,15 @@ class TestTokenLoadingFromDB:
 
             # Mock get_session to provide a database session
             mock_db_session = MagicMock()
-            with patch(
-                "paperless_webdav.auth.paperless.get_session"
-            ) as mock_get_session:
+            with patch("paperless_webdav.auth.paperless.get_session") as mock_get_session:
+
                 async def async_gen():
                     yield mock_db_session
 
                 mock_get_session.return_value = async_gen()
 
                 # get_current_user_optional should return None
-                user = await get_current_user_optional(
-                    session=session_value, settings=settings
-                )
+                user = await get_current_user_optional(session=session_value, settings=settings)
 
         assert user is None
 
