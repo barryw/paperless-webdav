@@ -5,9 +5,12 @@ from unittest.mock import MagicMock, patch
 
 from paperless_webdav.webdav_auth import PaperlessBasicAuthenticator
 from paperless_webdav.webdav_server import (
-    create_webdav_app,
+    ClientCompatibilityMiddleware,
     NoCacheMiddleware,
+    WebDAVClient,
     WebDAVServer,
+    create_webdav_app,
+    detect_webdav_client,
     _is_macos_client,
 )
 
@@ -319,8 +322,56 @@ class TestWebDAVServerProperties:
                 assert server._server is mock_server_instance
 
 
+class TestDetectWebdavClient:
+    """Tests for detect_webdav_client function."""
+
+    def test_detects_windows_miniredir(self):
+        """Should detect Windows WebDAV MiniRedir."""
+        ua = "Microsoft-WebDAV-MiniRedir/10.0.26200"
+        assert detect_webdav_client(ua) == WebDAVClient.WINDOWS
+
+    def test_detects_macos_webdavfs(self):
+        """Should detect macOS WebDAVFS client."""
+        ua = "WebDAVFS/3.0.0 (03008000) Darwin/23.0.0"
+        assert detect_webdav_client(ua) == WebDAVClient.MACOS
+
+    def test_detects_macos_darwin(self):
+        """Should detect Darwin in User-Agent as macOS."""
+        ua = "Some Client Darwin/21.0"
+        assert detect_webdav_client(ua) == WebDAVClient.MACOS
+
+    def test_detects_cyberduck(self):
+        """Should detect Cyberduck client."""
+        ua = "Cyberduck/8.7.0.40629 (Mac OS X/14.0)"
+        assert detect_webdav_client(ua) == WebDAVClient.CYBERDUCK
+
+    def test_detects_rclone(self):
+        """Should detect rclone client."""
+        ua = "rclone/v1.65.0"
+        assert detect_webdav_client(ua) == WebDAVClient.RCLONE
+
+    def test_detects_linux_gvfs(self):
+        """Should detect Linux gvfs client."""
+        ua = "gvfs/1.50.0"
+        assert detect_webdav_client(ua) == WebDAVClient.LINUX
+
+    def test_detects_linux_davfs2(self):
+        """Should detect Linux davfs2 client."""
+        # Note: must use "davfs2" not just "davfs" to avoid matching macOS "WebDAVFS"
+        ua = "davfs2/1.6.1 neon/0.31.2"
+        assert detect_webdav_client(ua) == WebDAVClient.LINUX
+
+    def test_returns_unknown_for_empty_ua(self):
+        """Should return UNKNOWN for empty User-Agent."""
+        assert detect_webdav_client("") == WebDAVClient.UNKNOWN
+
+    def test_returns_unknown_for_generic_client(self):
+        """Should return UNKNOWN for generic HTTP client."""
+        assert detect_webdav_client("curl/7.88.0") == WebDAVClient.UNKNOWN
+
+
 class TestIsMacosClient:
-    """Tests for _is_macos_client helper function."""
+    """Tests for _is_macos_client helper function (deprecated)."""
 
     def test_detects_webdavfs_client(self):
         """Should detect macOS WebDAVFS client."""
@@ -347,8 +398,8 @@ class TestIsMacosClient:
         assert _is_macos_client("curl/7.88.0") is False
 
 
-class TestNoCacheMiddleware:
-    """Tests for NoCacheMiddleware WSGI middleware."""
+class TestClientCompatibilityMiddleware:
+    """Tests for ClientCompatibilityMiddleware WSGI middleware."""
 
     def test_adds_no_cache_headers_for_macos_client(self):
         """Should add no-cache headers for macOS WebDAV clients."""
@@ -361,7 +412,7 @@ class TestNoCacheMiddleware:
         def mock_start_response(status, headers, exc_info=None):
             captured_headers.extend(headers)
 
-        middleware = NoCacheMiddleware(mock_app)
+        middleware = ClientCompatibilityMiddleware(mock_app)
         environ = {"HTTP_USER_AGENT": "WebDAVFS/3.0.0 Darwin/23.0.0"}
 
         list(middleware(environ, mock_start_response))
@@ -381,7 +432,7 @@ class TestNoCacheMiddleware:
         def mock_start_response(status, headers, exc_info=None):
             captured_headers.extend(headers)
 
-        middleware = NoCacheMiddleware(mock_app)
+        middleware = ClientCompatibilityMiddleware(mock_app)
         environ = {"HTTP_USER_AGENT": "Microsoft-WebDAV-MiniRedir/10.0.26200"}
 
         list(middleware(environ, mock_start_response))
@@ -401,7 +452,7 @@ class TestNoCacheMiddleware:
         def mock_start_response(status, headers, exc_info=None):
             captured_headers.extend(headers)
 
-        middleware = NoCacheMiddleware(mock_app)
+        middleware = ClientCompatibilityMiddleware(mock_app)
         environ = {}  # No User-Agent
 
         list(middleware(environ, mock_start_response))
@@ -409,3 +460,27 @@ class TestNoCacheMiddleware:
         header_names = [h[0] for h in captured_headers]
         assert "Cache-Control" not in header_names
         assert "Pragma" not in header_names
+
+    def test_stores_client_info_in_environ(self):
+        """Should store detected client info in environ."""
+        captured_environ = {}
+
+        def mock_app(environ, start_response):
+            captured_environ.update(environ)
+            start_response("200 OK", [])
+            return [b"test"]
+
+        def mock_start_response(status, headers, exc_info=None):
+            pass
+
+        middleware = ClientCompatibilityMiddleware(mock_app)
+        environ = {"HTTP_USER_AGENT": "Microsoft-WebDAV-MiniRedir/10.0.26200"}
+
+        list(middleware(environ, mock_start_response))
+
+        assert captured_environ.get("webdav.client") == WebDAVClient.WINDOWS
+        assert captured_environ.get("webdav.client_name") == "windows"
+
+    def test_nocachemiddleware_alias_works(self):
+        """NoCacheMiddleware should be an alias for ClientCompatibilityMiddleware."""
+        assert NoCacheMiddleware is ClientCompatibilityMiddleware

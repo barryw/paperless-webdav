@@ -2,6 +2,7 @@
 """WebDAV server using wsgidav and cheroot."""
 
 from collections.abc import Callable as ABCCallable, Iterable
+from enum import Enum
 from typing import Any, Callable
 
 import cheroot.wsgi
@@ -14,29 +15,92 @@ from paperless_webdav.logging import get_logger
 logger = get_logger(__name__)
 
 
-def _is_macos_client(user_agent: str) -> bool:
-    """Check if the User-Agent indicates a macOS WebDAV client.
+class WebDAVClient(Enum):
+    """Known WebDAV client types with their quirks."""
+
+    WINDOWS = "windows"  # Microsoft WebDAV MiniRedir - needs caching, has many quirks
+    MACOS = "macos"  # macOS Finder/WebDAVFS - aggressive caching, needs no-cache headers
+    LINUX = "linux"  # Linux clients (gvfs, davfs2) - generally well-behaved
+    CYBERDUCK = "cyberduck"  # Cyberduck - well-behaved, cross-platform
+    RCLONE = "rclone"  # rclone - well-behaved
+    UNKNOWN = "unknown"  # Unknown client
+
+
+def detect_webdav_client(user_agent: str) -> WebDAVClient:
+    """Detect the WebDAV client type from User-Agent header.
 
     Args:
         user_agent: The HTTP User-Agent header value
 
     Returns:
-        True if this appears to be a macOS client (Finder/WebDAVFS)
+        The detected WebDAVClient type
     """
-    macos_indicators = ("WebDAVFS", "Darwin", "macOS", "Mac OS")
-    return any(indicator in user_agent for indicator in macos_indicators)
+    if not user_agent:
+        return WebDAVClient.UNKNOWN
+
+    ua_lower = user_agent.lower()
+
+    # Check specific/well-behaved clients FIRST (before generic OS detection)
+    # These clients may include OS info in their UA but have their own quirks
+
+    # Cyberduck - well-behaved, cross-platform
+    # Example: "Cyberduck/8.7.0.40629 (Mac OS X/14.0)"
+    if "cyberduck" in ua_lower:
+        return WebDAVClient.CYBERDUCK
+
+    # rclone - well-behaved
+    # Example: "rclone/v1.65.0"
+    if "rclone" in ua_lower:
+        return WebDAVClient.RCLONE
+
+    # Linux clients - generally well-behaved
+    # gvfs: "gvfs/1.50.0"
+    # davfs2: "davfs2/1.6.1" (note: must check for "davfs2" not just "davfs" to avoid matching "WebDAVFS")
+    if "gvfs" in ua_lower or "davfs2" in ua_lower:
+        return WebDAVClient.LINUX
+
+    # Now check OS-specific built-in clients (more quirky)
+
+    # Windows WebDAV MiniRedir - many quirks
+    # Example: "Microsoft-WebDAV-MiniRedir/10.0.26200"
+    if "microsoft-webdav" in ua_lower or "miniredir" in ua_lower:
+        return WebDAVClient.WINDOWS
+
+    # macOS Finder / WebDAVFS - aggressive caching issues
+    # Example: "WebDAVFS/3.0.0 (03008000) Darwin/23.0.0"
+    if "webdavfs" in ua_lower or "darwin" in ua_lower:
+        return WebDAVClient.MACOS
+
+    # Also catch other macOS indicators
+    if "macos" in ua_lower or "mac os" in ua_lower:
+        return WebDAVClient.MACOS
+
+    return WebDAVClient.UNKNOWN
 
 
-class NoCacheMiddleware:
-    """WSGI middleware that adds Cache-Control headers for macOS clients.
+class ClientCompatibilityMiddleware:
+    """WSGI middleware that applies client-specific quirks and workarounds.
 
-    macOS WebDAV client (Finder) caches responses aggressively, which can cause
-    stale or truncated files to be served from cache. This middleware adds
-    Cache-Control: no-store to responses for macOS clients to prevent this.
+    Different WebDAV clients have different bugs and expectations. This middleware
+    detects the client type and applies appropriate workarounds:
 
-    Windows WebDAV client (MiniRedir) needs caching to work reliably - without
-    it, files may not fully download before applications try to open them,
-    causing intermittent failures. So we only apply no-cache for macOS.
+    Windows (MiniRedir):
+        - Needs caching to work reliably (files must fully download before apps open them)
+        - Has issues with non-standard ports, basic auth over HTTP, file size limits
+        - Many quirks documented at https://sabre.io/dav/clients/windows/
+
+    macOS (Finder/WebDAVFS):
+        - Caches responses aggressively, causing stale/truncated files
+        - Needs Cache-Control: no-store headers
+        - Creates .DS_Store and ._* resource fork files
+        - Uses chunked transfer encoding for uploads
+
+    Linux (gvfs, davfs2):
+        - Generally well-behaved, follows specs more closely
+
+    The middleware also:
+        - Logs client type for debugging
+        - Stores client info in environ["webdav.client"] for downstream use
     """
 
     def __init__(self, app: ABCCallable[..., Iterable[bytes]]) -> None:
@@ -48,20 +112,73 @@ class NoCacheMiddleware:
         start_response: ABCCallable[..., Any],
     ) -> Iterable[bytes]:
         user_agent = environ.get("HTTP_USER_AGENT", "")
-        is_macos = _is_macos_client(user_agent)
+        client = detect_webdav_client(user_agent)
+
+        # Store client info for downstream use (e.g., in provider)
+        environ["webdav.client"] = client
+        environ["webdav.client_name"] = client.value
+
+        # Log client type on first request (OPTIONS is typically first)
+        method = environ.get("REQUEST_METHOD", "")
+        if method == "OPTIONS":
+            logger.debug(
+                "webdav_client_detected",
+                client=client.value,
+                user_agent=user_agent[:100],  # Truncate long UAs
+            )
 
         def custom_start_response(
             status: str,
             response_headers: list[tuple[str, str]],
             exc_info: Any = None,
         ) -> Any:
-            # Only add no-cache headers for macOS clients
-            if is_macos:
-                response_headers.append(("Cache-Control", "no-store, no-cache, must-revalidate"))
-                response_headers.append(("Pragma", "no-cache"))
+            # Apply client-specific header modifications
+            self._apply_client_headers(client, response_headers)
             return start_response(status, response_headers, exc_info)
 
         return self._app(environ, custom_start_response)
+
+    def _apply_client_headers(
+        self,
+        client: WebDAVClient,
+        headers: list[tuple[str, str]],
+    ) -> None:
+        """Apply client-specific response headers.
+
+        Args:
+            client: The detected client type
+            headers: Response headers list to modify in-place
+        """
+        if client == WebDAVClient.MACOS:
+            # macOS Finder caches aggressively - disable caching to prevent
+            # stale or truncated files
+            headers.append(("Cache-Control", "no-store, no-cache, must-revalidate"))
+            headers.append(("Pragma", "no-cache"))
+
+        # Windows MiniRedir: Let it cache (default behavior)
+        # wsgidav already sends MS-Author-Via: DAV header
+
+        # For all clients: Ensure Content-Type has a default
+        # (some clients behave badly without it)
+        # This is handled by wsgidav, but we could add fallbacks here if needed
+
+
+# Keep old name as alias for backwards compatibility with tests
+NoCacheMiddleware = ClientCompatibilityMiddleware
+
+
+def _is_macos_client(user_agent: str) -> bool:
+    """Check if the User-Agent indicates a macOS WebDAV client.
+
+    Deprecated: Use detect_webdav_client() instead.
+
+    Args:
+        user_agent: The HTTP User-Agent header value
+
+    Returns:
+        True if this appears to be a macOS client (Finder/WebDAVFS)
+    """
+    return detect_webdav_client(user_agent) == WebDAVClient.MACOS
 
 
 def _make_authenticator_class(
@@ -145,6 +262,20 @@ def create_webdav_app(
         "logging": {
             "enable": True,
             "enable_loggers": ["wsgidav"],
+        },
+        # Client compatibility settings
+        # MS-Author-Via header is enabled by default in wsgidav
+        "add_header_MS_Author_Via": True,
+        # Hotfixes for various client quirks
+        "hotfixes": {
+            # Handle Windows Win32LastModifiedTime property (helps Win10, not Win7)
+            "emulate_win32_lastmod": True,
+            # Re-encode PATH_INFO using UTF-8 for non-ASCII filenames
+            "re_encode_path_info": True,
+            # Don't force unquote (let WSGI framework handle it)
+            "unquote_path_info": False,
+            # Accept 'OPTIONS /' as 'OPTIONS *' for WinXP/Vista compatibility
+            "treat_root_options_as_asterisk": True,
         },
         # Store references for request handlers
         "paperless_url": paperless_url,
