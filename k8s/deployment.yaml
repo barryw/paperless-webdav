@@ -17,7 +17,8 @@ spec:
     spec:
       containers:
         - name: paperless-webdav
-          image: ghcr.io/barryw/paperless-webdav:latest
+          # Image tag is set by CI pipeline via kubectl set image
+          image: ghcr.io/barryw/paperless-webdav:v0.1.0
           imagePullPolicy: Always
           ports:
             - containerPort: 8080
