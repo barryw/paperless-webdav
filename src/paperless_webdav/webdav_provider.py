@@ -35,6 +35,79 @@ logger = get_logger(__name__)
 # Characters that are unsafe for filesystems (Windows, macOS, Linux)
 UNSAFE_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*]')
 
+# macOS metadata file patterns
+MACOS_METADATA_PATTERNS = (
+    ".DS_Store",
+    "._.DS_Store",
+    ".Spotlight-V100",
+    ".Trashes",
+    ".fseventsd",
+)
+
+
+def is_macos_metadata_file(name: str) -> bool:
+    """Check if a filename is a macOS metadata file that should be silently handled.
+
+    Args:
+        name: The filename to check
+
+    Returns:
+        True if this is a macOS metadata file (._*, .DS_Store, etc.)
+    """
+    if name.startswith("._"):
+        return True
+    if name in MACOS_METADATA_PATTERNS:
+        return True
+    return False
+
+
+class MacOSMetadataResource(DAVNonCollection):  # type: ignore[misc]
+    """Virtual resource for macOS metadata files (._*, .DS_Store).
+
+    This resource accepts writes but discards the data, allowing macOS Finder
+    to perform operations like MOVE without failing on metadata file writes.
+    """
+
+    def __init__(self, path: str, environ: dict[str, Any]) -> None:
+        super().__init__(path, environ)
+        self._content: bytes = b""
+
+    def get_content_length(self) -> int:
+        return len(self._content)
+
+    def get_content_type(self) -> str:
+        return "application/octet-stream"
+
+    def get_content(self) -> io.BytesIO:
+        return io.BytesIO(self._content)
+
+    def begin_write(self, content_type: str | None = None) -> io.BytesIO:
+        """Accept write but discard content."""
+        logger.debug("macos_metadata_write", path=self.path)
+        # Return a BytesIO that we'll discard
+        return io.BytesIO()
+
+    def end_write(self, with_errors: bool) -> None:
+        """Complete the write (data is discarded)."""
+        pass
+
+    def delete(self) -> None:
+        """Accept delete (no-op)."""
+        logger.debug("macos_metadata_delete", path=self.path)
+
+    def support_etag(self) -> bool:
+        return False
+
+    def get_etag(self) -> str | None:
+        """Return None since we don't support etags for metadata files."""
+        return None
+
+    def get_creation_date(self) -> float:
+        return datetime.now().timestamp()
+
+    def get_last_modified(self) -> float:
+        return datetime.now().timestamp()
+
 
 def sanitize_filename(name: str) -> str:
     """Remove filesystem-unsafe characters from a filename.
@@ -206,10 +279,39 @@ class PaperlessProvider(DAVProvider):  # type: ignore[misc]
         # Use ShareResource to resolve members (handles dynamic loading)
         share_resource = ShareResource(f"/{share_name}", environ, self, share)
         member = share_resource.get_member(resource_name)
-        if member is not None:
-            # Update the path to the full requested path
+
+        if member is None:
+            logger.debug("resource_not_found", path=path)
+            return None
+
+        # Two-level path: /{share}/{resource} (document or done folder)
+        if len(parts) == 2:
             member.path = path
+            logger.debug(
+                "resolve_two_level",
+                path=path,
+                resource_type=type(member).__name__,
+                is_collection=member.is_collection,
+            )
             return member
+
+        # Three-level path: /{share}/done/{document}
+        # Need to resolve the document within the done folder
+        if len(parts) == 3:
+            logger.debug(
+                "resolve_three_level",
+                path=path,
+                member_type=type(member).__name__,
+                is_done_folder=isinstance(member, DoneFolderResource),
+            )
+            if isinstance(member, DoneFolderResource):
+                doc_name = parts[2]
+                doc_resource = member.get_member(doc_name)
+                if doc_resource is not None:
+                    doc_resource.path = path
+                    return doc_resource
+                logger.debug("document_not_found_in_done", path=path, doc_name=doc_name)
+                return None
 
         logger.debug("resource_not_found", path=path)
         return None
@@ -451,7 +553,7 @@ class ShareResource(DAVCollection):  # type: ignore[misc]
 
     def get_member(
         self, name: str
-    ) -> DocumentResource | DoneFolderResource | None:
+    ) -> DocumentResource | DoneFolderResource | MacOSMetadataResource | None:
         """Get a member resource by name.
 
         Args:
@@ -460,6 +562,10 @@ class ShareResource(DAVCollection):  # type: ignore[misc]
         Returns:
             The appropriate resource, or None if not found
         """
+        # Handle macOS metadata files - return virtual resource
+        if is_macos_metadata_file(name):
+            return MacOSMetadataResource(f"{self.path}/{name}", self.environ)
+
         # Check for done folder
         if name == self._share.done_folder_name and self._share.done_folder_enabled:
             return DoneFolderResource(
@@ -491,6 +597,29 @@ class ShareResource(DAVCollection):  # type: ignore[misc]
                 )
 
         return None
+
+    def create_empty_resource(self, name: str) -> MacOSMetadataResource:
+        """Create a new empty resource (for PUT to new file).
+
+        Only allows creating macOS metadata files (._*, .DS_Store).
+        Other files cannot be created (documents come from Paperless).
+
+        Args:
+            name: The filename to create
+
+        Returns:
+            MacOSMetadataResource for metadata files
+
+        Raises:
+            DAVError: 403 Forbidden if not a metadata file
+        """
+        if is_macos_metadata_file(name):
+            logger.debug("create_empty_resource_metadata", path=f"{self.path}/{name}")
+            return MacOSMetadataResource(f"{self.path}/{name}", self.environ)
+
+        # Don't allow creating arbitrary files
+        from wsgidav.dav_error import DAVError, HTTP_FORBIDDEN  # type: ignore[import-untyped]
+        raise DAVError(HTTP_FORBIDDEN, f"Cannot create files in this share: {name}")
 
 
 class DoneFolderResource(DAVCollection):  # type: ignore[misc]
@@ -666,15 +795,19 @@ class DoneFolderResource(DAVCollection):  # type: ignore[misc]
 
         return []
 
-    def get_member(self, name: str) -> DocumentResource | None:
+    def get_member(self, name: str) -> DocumentResource | MacOSMetadataResource | None:
         """Get a member by name.
 
         Args:
             name: The filename
 
         Returns:
-            DocumentResource if found, None otherwise
+            DocumentResource if found, MacOSMetadataResource for metadata files, None otherwise
         """
+        # Handle macOS metadata files - return virtual resource
+        if is_macos_metadata_file(name):
+            return MacOSMetadataResource(f"{self.path}/{name}", self.environ)
+
         doc = self._get_doc_by_filename(name)
         if doc is not None:
             return DocumentResource(
@@ -686,6 +819,27 @@ class DoneFolderResource(DAVCollection):  # type: ignore[misc]
                 in_done_folder=True,
             )
         return None
+
+    def create_empty_resource(self, name: str) -> MacOSMetadataResource:
+        """Create a new empty resource (for PUT to new file).
+
+        Only allows creating macOS metadata files (._*, .DS_Store).
+
+        Args:
+            name: The filename to create
+
+        Returns:
+            MacOSMetadataResource for metadata files
+
+        Raises:
+            DAVError: 403 Forbidden if not a metadata file
+        """
+        if is_macos_metadata_file(name):
+            logger.debug("create_empty_resource_metadata_done", path=f"{self.path}/{name}")
+            return MacOSMetadataResource(f"{self.path}/{name}", self.environ)
+
+        from wsgidav.dav_error import DAVError, HTTP_FORBIDDEN  # type: ignore[import-untyped]
+        raise DAVError(HTTP_FORBIDDEN, f"Cannot create files in done folder: {name}")
 
 
 class DocumentResource(DAVNonCollection):  # type: ignore[misc]
@@ -1013,39 +1167,103 @@ class DocumentResource(DAVNonCollection):  # type: ignore[misc]
                         f"('{folder_name}' is not the done folder)",
                     )
 
-    def move(self, dest_path: str) -> bool:
-        """Move the document to a new location.
+    def handle_move(self, dest_path: str) -> bool:
+        """Handle native MOVE operation.
 
-        When moving to the done folder, this adds the done_tag to the document.
-        When moving from done folder to root, this removes the done_tag.
-        The move is virtual - we're just adding/removing a tag, not moving files.
-
-        Only these MOVE operations are allowed:
-        - Root -> Done folder (within same share)
-        - Done folder -> Root (within same share)
-        - Same location moves (no-op)
+        wsgidav calls this first to allow providers to handle moves natively.
+        We return True and implement the move logic here to avoid the
+        individual file copy/delete approach.
 
         Args:
             dest_path: The destination path
 
         Returns:
-            True if the move was successful
+            True if handled, False to fall back to copy_move_single
+        """
+        from wsgidav.dav_error import DAVError, HTTP_FORBIDDEN  # type: ignore[import-untyped]
+
+        logger.info(
+            "handle_move_called",
+            document_id=self.document.id,
+            source_path=self.path,
+            dest_path=dest_path,
+        )
+
+        # Validate the move destination
+        try:
+            self._validate_move_destination(dest_path)
+        except DAVError:
+            raise
+
+        # Handle move TO done folder (add tag)
+        if self._is_move_to_done_folder(dest_path):
+            if self._handle_move_to_done_folder():
+                return True
+            raise DAVError(HTTP_FORBIDDEN, "Failed to move to done folder")
+
+        # Handle move FROM done folder to root (remove tag)
+        if self._is_move_from_done_folder_to_root(dest_path):
+            if self._handle_move_from_done_folder():
+                return True
+            raise DAVError(HTTP_FORBIDDEN, "Failed to move from done folder")
+
+        # No-op for other moves (same location)
+        logger.debug(
+            "move_no_tag_change",
+            document_id=self.document.id,
+            dest_path=dest_path,
+        )
+        return True
+
+    def copy_move_single(self, dest_path: str, *, is_move: bool) -> bool:
+        """Copy or move this document to dest_path.
+
+        For our virtual filesystem, MOVE operations change tags:
+        - Moving to done folder adds the done_tag
+        - Moving from done folder removes the done_tag
+
+        COPY operations are not supported (returns 403 Forbidden).
+
+        Args:
+            dest_path: The destination path
+            is_move: True for MOVE, False for COPY
+
+        Returns:
+            True if successful
 
         Raises:
-            DAVError: HTTP 403 Forbidden if the move is not allowed
+            DAVError: 403 Forbidden if operation is not allowed
         """
-        # Validate the move destination first
+        from wsgidav.dav_error import DAVError, HTTP_FORBIDDEN  # type: ignore[import-untyped]
+
+        logger.info(
+            "copy_move_single_called",
+            document_id=self.document.id,
+            source_path=self.path,
+            dest_path=dest_path,
+            is_move=is_move,
+        )
+
+        # Only support MOVE, not COPY
+        if not is_move:
+            raise DAVError(HTTP_FORBIDDEN, "Copy not supported for documents")
+
+        # Validate the move destination
         self._validate_move_destination(dest_path)
 
         # Handle move TO done folder (add tag)
         if self._is_move_to_done_folder(dest_path):
-            return self._handle_move_to_done_folder()
+            if self._handle_move_to_done_folder():
+                return True
+            raise DAVError(HTTP_FORBIDDEN, "Failed to move to done folder")
 
         # Handle move FROM done folder to root (remove tag)
         if self._is_move_from_done_folder_to_root(dest_path):
-            return self._handle_move_from_done_folder()
+            if self._handle_move_from_done_folder():
+                return True
+            raise DAVError(HTTP_FORBIDDEN, "Failed to move from done folder")
 
-        # No-op for other moves
+        # No-op for other moves (same location)
         logger.debug(
             "move_no_tag_change",
             document_id=self.document.id,
@@ -1136,3 +1354,36 @@ class DocumentResource(DAVNonCollection):  # type: ignore[misc]
                 error=str(exc),
             )
             return False
+
+    def delete(self) -> None:
+        """Handle deletion of document resource.
+
+        For documents in the done folder, this removes the done_tag
+        (making the document reappear in the share root).
+
+        For documents not in the done folder, deletion is not allowed
+        (we don't actually delete documents from Paperless).
+
+        Raises:
+            DAVError: 403 Forbidden if deletion is not allowed
+        """
+        from wsgidav.dav_error import DAVError, HTTP_FORBIDDEN  # type: ignore[import-untyped]
+
+        # Only allow "deletion" from done folder (removes the done_tag)
+        if self._in_done_folder:
+            logger.info(
+                "delete_from_done_folder",
+                document_id=self.document.id,
+            )
+            # Removing the done_tag is the same as moving from done folder
+            if self._handle_move_from_done_folder():
+                return
+            raise DAVError(HTTP_FORBIDDEN, "Failed to remove done tag")
+
+        # Don't allow deletion from share root
+        logger.warning(
+            "delete_not_allowed",
+            document_id=self.document.id,
+            path=self.path,
+        )
+        raise DAVError(HTTP_FORBIDDEN, "Cannot delete documents from share root")
