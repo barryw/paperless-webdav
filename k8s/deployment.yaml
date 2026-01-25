@@ -42,12 +42,36 @@ spec:
                 secretKeyRef:
                   name: paperless-webdav
                   key: SECRET_KEY
+            # OIDC Authentication via Authentik
             - name: AUTH_MODE
-              value: "paperless"
+              value: "oidc"
+            - name: OIDC_ISSUER
+              value: "https://auth.lan/application/o/paperless/"
+            - name: OIDC_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: paperless-webdav
+                  key: OIDC_CLIENT_ID
+            - name: OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: paperless-webdav
+                  key: OIDC_CLIENT_SECRET
+            # LDAP via Authentik outpost (for WebDAV basic auth)
+            - name: LDAP_URL
+              value: "ldap://ak-outpost-ldap-outpost.authentik.svc.cluster.local:389"
+            - name: LDAP_BASE_DN
+              value: "dc=ldap,dc=goauthentik,dc=io"
+            # SSL/TLS
+            - name: SSL_CERT_FILE
+              value: "/etc/ssl/certs/ca-certificates.crt"
             - name: COOKIE_SECURE
               value: "true"
+            # Logging
             - name: LOG_FORMAT
               value: "console"
+            - name: LOG_LEVEL
+              value: "INFO"
           resources:
             requests:
               memory: "128Mi"
