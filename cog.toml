@@ -1,0 +1,66 @@
+# Cocogitto configuration for conventional commits and semantic versioning
+# https://docs.cocogitto.io/
+
+from_latest_tag = true
+ignore_merge_commits = true
+tag_prefix = "v"
+
+# Pre/post bump hooks
+pre_bump_hooks = []
+post_bump_hooks = [
+    "git push",
+    "git push origin {{version}}",
+]
+
+[changelog]
+path = "CHANGELOG.md"
+template = "remote"
+remote = "github.com"
+repository = "paperless-webdav"
+owner = "barryw"
+
+# Git hooks configuration
+[git_hooks.commit-msg]
+script = """#!/bin/sh
+set -e
+cog verify --file $1
+"""
+
+# Commit types
+[commit_types.feat]
+changelog_title = "Features"
+bump_minor = true
+
+[commit_types.fix]
+changelog_title = "Bug Fixes"
+bump_patch = true
+
+[commit_types.perf]
+changelog_title = "Performance"
+bump_patch = true
+
+[commit_types.docs]
+changelog_title = "Documentation"
+
+[commit_types.style]
+changelog_title = "Styling"
+
+[commit_types.refactor]
+changelog_title = "Refactoring"
+bump_patch = true
+
+[commit_types.test]
+changelog_title = "Tests"
+
+[commit_types.build]
+changelog_title = "Build"
+
+[commit_types.ci]
+changelog_title = "CI/CD"
+
+[commit_types.chore]
+changelog_title = "Miscellaneous"
+
+[commit_types.revert]
+changelog_title = "Reverts"
+bump_patch = true
