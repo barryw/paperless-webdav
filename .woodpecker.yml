@@ -14,6 +14,7 @@ steps:
   lint:
     image: python:3.12-slim
     commands:
+      - apt-get update && apt-get install -y gcc libldap2-dev libsasl2-dev
       - pip install uv
       - uv sync --frozen
       - uv run ruff check src/ tests/
@@ -22,6 +23,7 @@ steps:
   typecheck:
     image: python:3.12-slim
     commands:
+      - apt-get update && apt-get install -y gcc libldap2-dev libsasl2-dev
       - pip install uv
       - uv sync --frozen
       - uv run mypy src/
@@ -35,6 +37,7 @@ steps:
       ENCRYPTION_KEY: dGVzdGtleXRoYXRpczMyYnl0ZXNsb25nIQ==
       SECRET_KEY: test-secret-key-for-sessions
     commands:
+      - apt-get update && apt-get install -y gcc libldap2-dev libsasl2-dev
       - pip install uv
       - uv sync --frozen
       - uv run pytest --tb=short -q
