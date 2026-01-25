@@ -30,8 +30,8 @@ spec:
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: walker-cnpg-app
-                  key: uri
+                  name: paperless-webdav
+                  key: DATABASE_URL
             - name: ENCRYPTION_KEY
               valueFrom:
                 secretKeyRef:
