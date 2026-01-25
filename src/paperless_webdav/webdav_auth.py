@@ -6,18 +6,18 @@ import time
 from typing import Any
 
 import ldap  # type: ignore[import-untyped]
-
-# Auth cache: maps (username, password_hash) -> (token, expiry_time)
-_auth_cache: dict[tuple[str, str], tuple[str, float]] = {}
-AUTH_CACHE_TTL = 300  # 5 minutes
 from wsgidav.dc.base_dc import BaseDomainController  # type: ignore[import-untyped]
 
 from paperless_webdav.async_bridge import run_async
 from paperless_webdav.auth.paperless import _authenticate_with_paperless
-from paperless_webdav.logging import get_logger
 from paperless_webdav.database import get_sync_session
-from paperless_webdav.models import User
 from paperless_webdav.encryption import TokenEncryption
+from paperless_webdav.logging import get_logger
+from paperless_webdav.models import User
+
+# Auth cache: maps (username, password_hash) -> (token, expiry_time)
+_auth_cache: dict[tuple[str, str], tuple[str, float]] = {}
+AUTH_CACHE_TTL = 300  # 5 minutes
 
 logger = get_logger(__name__)
 
