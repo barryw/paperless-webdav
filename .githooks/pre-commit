@@ -1,0 +1,15 @@
+#!/bin/bash
+# Pre-commit hook: runs lint, format check, and tests before allowing commit
+
+set -e
+
+echo "Running ruff check..."
+uv run ruff check src/ tests/
+
+echo "Running ruff format check..."
+uv run ruff format --check src/ tests/
+
+echo "Running tests..."
+uv run pytest --tb=short -q
+
+echo "All checks passed!"
