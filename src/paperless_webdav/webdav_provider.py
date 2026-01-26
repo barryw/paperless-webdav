@@ -1171,6 +1171,20 @@ class DocumentResource(DAVNonCollection):  # type: ignore[misc]
         """
         return True
 
+    def begin_write(self, content_type: str | None = None) -> io.BytesIO:
+        """Accept write but discard content.
+
+        macOS Finder sometimes tries to write to files when opening them
+        (e.g., updating metadata). We accept but discard this to prevent
+        403 errors that confuse Finder.
+        """
+        logger.debug("document_write_discarded", document_id=self.document.id)
+        return io.BytesIO()
+
+    def end_write(self, with_errors: bool) -> None:
+        """Complete the write (data is discarded)."""
+        pass
+
     @staticmethod
     def _parse_iso_datetime(iso_string: str) -> datetime:
         """Parse an ISO 8601 datetime string.
