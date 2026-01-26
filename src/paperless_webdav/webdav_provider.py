@@ -1040,40 +1040,19 @@ class DocumentResource(DAVNonCollection):  # type: ignore[misc]
     def get_content_length(self) -> int | None:
         """Return the content length.
 
-        Uses cached size or HEAD request when possible to avoid downloading
-        the full content just for the size.
+        Always returns the actual content size to ensure consistency between
+        Content-Length header and actual content served. This prevents macOS
+        Finder "damaged file" errors caused by size mismatches.
 
         Returns:
             Content length in bytes, or None if unknown
         """
-        # If we already have content loaded, use its size
-        if self._content is not None:
-            return len(self._content)
-
-        # Check cache for size
-        cache = get_cache()
-        cached_size = cache.get_size(self.document.id)
-        if cached_size is not None:
-            return cached_size
-
-        # Try HEAD request for size (fast)
-        client = self._provider._create_client(self.environ)
-        if client is not None:
-            size = run_async(client.get_document_size(self.document.id))
-            if size is not None:
-                cache.set_size(self.document.id, size)
-                logger.debug(
-                    "get_content_length_from_head",
-                    document_id=self.document.id,
-                    size=size,
-                )
-                return size
-
-        # Fall back to downloading content (slow but reliable)
+        # Always use actual content size for consistency
+        # HEAD requests to paperless may return different sizes than GET
         content = self._download_content()
         size = len(content)
         logger.debug(
-            "get_content_length_from_download",
+            "get_content_length",
             document_id=self.document.id,
             size=size,
         )
