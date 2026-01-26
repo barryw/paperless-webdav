@@ -178,7 +178,7 @@ class RedisCache:
 
     def get_content(self, document_id: int) -> bytes | None:
         try:
-            content = self._redis.get(self._content_key(document_id))
+            content: bytes | None = self._redis.get(self._content_key(document_id))  # type: ignore[assignment]
             if content is not None:
                 logger.debug("cache_hit_content", document_id=document_id, backend="redis")
             return content
@@ -251,9 +251,9 @@ class RedisCache:
     def clear(self) -> None:
         try:
             # Delete all keys with our prefix
-            cursor = 0
+            cursor: int = 0
             while True:
-                cursor, keys = self._redis.scan(cursor, match=f"{self._prefix}*", count=100)
+                cursor, keys = self._redis.scan(cursor, match=f"{self._prefix}*", count=100)  # type: ignore[misc]
                 if keys:
                     self._redis.delete(*keys)
                 if cursor == 0:
