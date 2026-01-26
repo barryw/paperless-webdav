@@ -66,13 +66,17 @@ steps:
       - git config --global user.name "Woodpecker CI"
       - git config --global --add safe.directory "$CI_WORKSPACE"
       - git remote set-url origin "https://x-access-token:$GITHUB_TOKEN@github.com/$CI_REPO.git"
-      - git fetch --tags
+      # Unshallow and fetch all tags (CI uses shallow clone)
+      - git fetch --unshallow origin || true
+      - git fetch --tags origin
       # Check for version bump
       - echo "=== Checking for Version Bump ==="
       - 'LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0") && echo "Latest tag: $LATEST_TAG"'
       - 'cog check --from-latest-tag 2>/dev/null || echo "Warning - Some commits may not follow conventional commit format"'
-      # Dry-run to detect if bump is needed - cog bump --auto --dry-run outputs version to stdout on success
-      - 'NEXT_VERSION=$(cog bump --auto --dry-run 2>/dev/null) || { echo "No version bump needed"; echo "NONE" > /woodpecker/version.txt; exit 0; }'
+      # Dry-run to detect if bump is needed - check output looks like a version (vX.Y.Z)
+      - 'NEXT_VERSION=$(cog bump --auto --dry-run 2>&1)'
+      - 'echo "Dry-run output: $NEXT_VERSION"'
+      - 'echo "$NEXT_VERSION" | grep -qE "^[0-9]+\.[0-9]+\.[0-9]+" || { echo "No version bump needed"; echo "NONE" > /woodpecker/version.txt; exit 0; }'
       - 'echo "Next version will be: $NEXT_VERSION"'
       # Perform the actual bump
       - 'cog bump --auto'
