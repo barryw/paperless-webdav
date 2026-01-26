@@ -1075,13 +1075,7 @@ class DocumentResource(DAVNonCollection):  # type: ignore[misc]
         """
         # If we already have content loaded, use its size
         if self._content is not None:
-            size = len(self._content)
-            logger.info(
-                "get_content_length_from_instance",
-                document_id=self.document.id,
-                size=size,
-            )
-            return size
+            return len(self._content)
 
         # Check if we have actual content cached (not just HEAD-derived size)
         cache = get_cache()
@@ -1089,24 +1083,12 @@ class DocumentResource(DAVNonCollection):  # type: ignore[misc]
         if cached_content is not None:
             # Content is cached, so size is accurate
             self._content = cached_content
-            size = len(self._content)
-            logger.info(
-                "get_content_length_from_cache",
-                document_id=self.document.id,
-                size=size,
-            )
-            return size
+            return len(self._content)
 
         # No content cached - download it to ensure accurate size
         # This is necessary because HEAD-derived sizes may differ from GET content
         content = self._download_content()
-        size = len(content)
-        logger.info(
-            "get_content_length_downloaded",
-            document_id=self.document.id,
-            size=size,
-        )
-        return size
+        return len(content)
 
     def get_content(self) -> io.BytesIO:
         """Return the document content as a file-like object.
@@ -1118,11 +1100,6 @@ class DocumentResource(DAVNonCollection):  # type: ignore[misc]
             File-like object containing document content
         """
         content = self._download_content()
-        logger.info(
-            "get_content_returning",
-            document_id=self.document.id,
-            content_size=len(content),
-        )
         return io.BytesIO(content)
 
     def get_creation_date(self) -> float:
