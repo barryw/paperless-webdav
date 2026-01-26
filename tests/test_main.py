@@ -144,6 +144,7 @@ class TestRunServers:
         with (
             patch("paperless_webdav.main.setup_logging"),
             patch("paperless_webdav.main.logger"),
+            patch("paperless_webdav.main.init_cache"),
             patch("paperless_webdav.main.init_database", new_callable=AsyncMock),
             patch("paperless_webdav.main.close_database", new_callable=AsyncMock),
             patch("paperless_webdav.main.run_async") as mock_run_async,
@@ -182,6 +183,7 @@ class TestRunServers:
         with (
             patch("paperless_webdav.main.setup_logging"),
             patch("paperless_webdav.main.logger"),
+            patch("paperless_webdav.main.init_cache"),
             patch("paperless_webdav.main.init_database", new_callable=AsyncMock),
             patch("paperless_webdav.main.close_database", new_callable=AsyncMock),
             patch("paperless_webdav.main.run_async"),
@@ -221,6 +223,7 @@ class TestRunServers:
         with (
             patch("paperless_webdav.main.setup_logging"),
             patch("paperless_webdav.main.logger"),
+            patch("paperless_webdav.main.init_cache"),
             patch("paperless_webdav.main.init_database", new_callable=AsyncMock),
             patch("paperless_webdav.main.close_database", new_callable=AsyncMock),
             patch("paperless_webdav.main.run_async"),
@@ -252,6 +255,7 @@ class TestRunServers:
         with (
             patch("paperless_webdav.main.setup_logging"),
             patch("paperless_webdav.main.logger"),
+            patch("paperless_webdav.main.init_cache"),
             patch("paperless_webdav.main.init_database", new_callable=AsyncMock),
             patch("paperless_webdav.main.close_database", new_callable=AsyncMock),
             patch("paperless_webdav.main.run_async"),
@@ -301,6 +305,7 @@ class TestShutdownHandler:
         with (
             patch("paperless_webdav.main.setup_logging"),
             patch("paperless_webdav.main.logger"),
+            patch("paperless_webdav.main.init_cache"),
             patch("paperless_webdav.main.init_database", new_callable=AsyncMock),
             patch("paperless_webdav.main.close_database", new_callable=AsyncMock),
             patch("paperless_webdav.main.run_async"),
@@ -346,6 +351,7 @@ class TestShutdownHandler:
         with (
             patch("paperless_webdav.main.setup_logging"),
             patch("paperless_webdav.main.logger"),
+            patch("paperless_webdav.main.init_cache"),
             patch("paperless_webdav.main.init_database", new_callable=AsyncMock),
             patch("paperless_webdav.main.close_database", new_callable=AsyncMock),
             patch("paperless_webdav.main.run_async") as mock_run_async,
@@ -394,6 +400,7 @@ class TestShutdownHandler:
         with (
             patch("paperless_webdav.main.setup_logging"),
             patch("paperless_webdav.main.logger"),
+            patch("paperless_webdav.main.init_cache"),
             patch("paperless_webdav.main.init_database", new_callable=AsyncMock),
             patch("paperless_webdav.main.close_database", new_callable=AsyncMock),
             patch("paperless_webdav.main.run_async"),
@@ -435,6 +442,7 @@ class TestLoggingSetup:
         with (
             patch("paperless_webdav.main.setup_logging") as mock_setup_logging,
             patch("paperless_webdav.main.logger"),
+            patch("paperless_webdav.main.init_cache"),
             patch("paperless_webdav.main.init_database", new_callable=AsyncMock),
             patch("paperless_webdav.main.close_database", new_callable=AsyncMock),
             patch("paperless_webdav.main.run_async"),

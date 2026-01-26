@@ -10,6 +10,7 @@ import uvicorn
 from sqlalchemy import select
 
 from paperless_webdav.async_bridge import run_async
+from paperless_webdav.cache import init_cache
 from paperless_webdav.config import get_settings
 from paperless_webdav.database import (
     _async_session_factory,
@@ -70,14 +71,21 @@ def run_servers() -> None:
     # Initialize database synchronously before starting servers
     run_async(init_database(settings.database_url.get_secret_value()))
 
+    # Initialize cache (Redis if configured, otherwise in-memory)
+    redis_lock_password = None
+    if settings.redis_lock_password:
+        redis_lock_password = settings.redis_lock_password.get_secret_value()
+    init_cache(
+        redis_host=settings.redis_lock_host,
+        redis_port=settings.redis_lock_port,
+        redis_db=settings.redis_lock_db,
+        redis_password=redis_lock_password,
+    )
+
     # Create WebDAV server with auth mode and encryption key for OIDC support
     ldap_bind_password = None
     if settings.ldap_bind_password:
         ldap_bind_password = settings.ldap_bind_password.get_secret_value()
-
-    redis_lock_password = None
-    if settings.redis_lock_password:
-        redis_lock_password = settings.redis_lock_password.get_secret_value()
 
     webdav_server = WebDAVServer(
         host="0.0.0.0",

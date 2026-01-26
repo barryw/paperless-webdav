@@ -1040,15 +1040,23 @@ class DocumentResource(DAVNonCollection):  # type: ignore[misc]
     def get_content_length(self) -> int | None:
         """Return the content length.
 
-        Always returns the actual content size to ensure consistency between
-        Content-Length header and actual content served. This prevents macOS
-        Finder "damaged file" errors caused by size mismatches.
+        Uses cached size when available. With Redis cache (multi-pod),
+        the cache is shared so sizes are consistent across pods.
 
         Returns:
             Content length in bytes, or None if unknown
         """
-        # Always use actual content size for consistency
-        # HEAD requests to paperless may return different sizes than GET
+        # If we already have content loaded, use its size
+        if self._content is not None:
+            return len(self._content)
+
+        # Check cache for size (shared via Redis in multi-pod deployments)
+        cache = get_cache()
+        cached_size = cache.get_size(self.document.id)
+        if cached_size is not None:
+            return cached_size
+
+        # Download content to get accurate size (also caches it)
         content = self._download_content()
         size = len(content)
         logger.debug(
