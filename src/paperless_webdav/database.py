@@ -5,7 +5,7 @@ from collections.abc import AsyncGenerator
 from contextlib import contextmanager
 from typing import Generator
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -49,9 +49,15 @@ async def init_database(database_url: str) -> None:
     # Import models to register them with Base before creating tables
     from paperless_webdav import models  # noqa: F401
 
-    # Create all tables
+    # Create all tables with advisory lock to prevent race conditions
+    # when multiple replicas start simultaneously
     async with _engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+        # Acquire advisory lock (lock_id=1 for schema migrations)
+        await conn.execute(text("SELECT pg_advisory_lock(1)"))
+        try:
+            await conn.run_sync(Base.metadata.create_all)
+        finally:
+            await conn.execute(text("SELECT pg_advisory_unlock(1)"))
 
 
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
