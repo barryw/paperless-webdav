@@ -6,6 +6,7 @@ from enum import Enum
 from typing import Any, Callable
 
 import cheroot.wsgi
+from wsgidav.lock_man.lock_storage_redis import LockStorageRedis
 from wsgidav.wsgidav_app import WsgiDAVApp
 
 from paperless_webdav.webdav_auth import PaperlessBasicAuthenticator
@@ -220,6 +221,10 @@ def create_webdav_app(
     ldap_base_dn: str | None = None,
     ldap_bind_dn: str | None = None,
     ldap_bind_password: str | None = None,
+    redis_host: str | None = None,
+    redis_port: int = 6379,
+    redis_db: int = 0,
+    redis_password: str | None = None,
 ) -> WsgiDAVApp:
     """Create the wsgidav WSGI application.
 
@@ -232,6 +237,10 @@ def create_webdav_app(
         ldap_base_dn: LDAP base DN for user lookups
         ldap_bind_dn: Service account DN for LDAP bind
         ldap_bind_password: Service account password for LDAP bind
+        redis_host: Redis host for distributed lock storage
+        redis_port: Redis port (default 6379)
+        redis_db: Redis database number (default 0)
+        redis_password: Redis password (optional)
 
     Returns:
         Configured WsgiDAVApp instance
@@ -282,6 +291,22 @@ def create_webdav_app(
         "share_loader": share_loader,
     }
 
+    # Configure distributed lock storage if Redis is available
+    if redis_host:
+        lock_storage = LockStorageRedis(
+            host=redis_host,
+            port=redis_port,
+            db=redis_db,
+            password=redis_password,
+        )
+        config["lock_storage"] = lock_storage
+        logger.info(
+            "redis_lock_storage_configured",
+            host=redis_host,
+            port=redis_port,
+            db=redis_db,
+        )
+
     app = WsgiDAVApp(config)
     # Wrap with no-cache middleware to prevent macOS Finder caching issues
     return NoCacheMiddleware(app)
@@ -302,6 +327,10 @@ class WebDAVServer:
         ldap_base_dn: str | None = None,
         ldap_bind_dn: str | None = None,
         ldap_bind_password: str | None = None,
+        redis_host: str | None = None,
+        redis_port: int = 6379,
+        redis_db: int = 0,
+        redis_password: str | None = None,
     ) -> None:
         """Initialize the WebDAV server.
 
@@ -316,6 +345,10 @@ class WebDAVServer:
             ldap_base_dn: LDAP base DN for user lookups
             ldap_bind_dn: Service account DN for LDAP bind
             ldap_bind_password: Service account password for LDAP bind
+            redis_host: Redis host for distributed lock storage
+            redis_port: Redis port (default 6379)
+            redis_db: Redis database number (default 0)
+            redis_password: Redis password (optional)
         """
         self._app = create_webdav_app(
             paperless_url=paperless_url,
@@ -326,6 +359,10 @@ class WebDAVServer:
             ldap_base_dn=ldap_base_dn,
             ldap_bind_dn=ldap_bind_dn,
             ldap_bind_password=ldap_bind_password,
+            redis_host=redis_host,
+            redis_port=redis_port,
+            redis_db=redis_db,
+            redis_password=redis_password,
         )
         self._server = cheroot.wsgi.Server(
             (host, port),

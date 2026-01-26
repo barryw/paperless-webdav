@@ -1,5 +1,14 @@
 """Shared test fixtures."""
 
+import os
+
+# Set test environment variables BEFORE any imports that trigger Settings validation.
+# This is required because app.py creates the app at module import time.
+os.environ.setdefault("PAPERLESS_URL", "http://paperless.test")
+os.environ.setdefault("DATABASE_URL", "postgresql://test:test@localhost/test")
+os.environ.setdefault("ENCRYPTION_KEY", "aa8D7QnZUqkFGBniEyIfESXitQUijPhSjQZLIqltUy4=")
+os.environ.setdefault("SECRET_KEY", "test-secret-key-for-sessions")
+
 import pytest
 from unittest.mock import patch
 

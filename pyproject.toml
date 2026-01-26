@@ -22,6 +22,7 @@ dependencies = [
     "python-ldap>=3.4.0",
     "itsdangerous>=2.1.0",
     "psycopg2-binary>=2.9.0",
+    "redis>=5.0.0",
 ]
 
 [project.optional-dependencies]
