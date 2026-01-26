@@ -72,7 +72,7 @@ class TestMigrationContent:
         migration_path = Path(__file__).parent.parent / "alembic" / "versions" / "001_initial.py"
         content = migration_path.read_text()
 
-        assert 'create_table(' in content and '"users"' in content
+        assert "create_table(" in content and '"users"' in content
         assert "external_id" in content
         assert "paperless_token_encrypted" in content
 
@@ -81,7 +81,7 @@ class TestMigrationContent:
         migration_path = Path(__file__).parent.parent / "alembic" / "versions" / "001_initial.py"
         content = migration_path.read_text()
 
-        assert 'create_table(' in content and '"shares"' in content
+        assert "create_table(" in content and '"shares"' in content
         assert "owner_id" in content
         assert "include_tags" in content
         assert "exclude_tags" in content
@@ -92,7 +92,7 @@ class TestMigrationContent:
         migration_path = Path(__file__).parent.parent / "alembic" / "versions" / "001_initial.py"
         content = migration_path.read_text()
 
-        assert 'create_table(' in content and '"audit_log"' in content
+        assert "create_table(" in content and '"audit_log"' in content
         assert "event_type" in content
         assert "ip_address" in content
         assert "user_agent" in content
