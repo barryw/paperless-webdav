@@ -231,11 +231,14 @@ class PaperlessProvider(DAVProvider):  # type: ignore[misc]
 
         When multiple documents would have the same sanitized filename,
         a warning is logged and the document ID is appended to disambiguate.
+        The document with the LOWEST ID always gets the base filename to ensure
+        deterministic behavior across requests.
         """
         self._doc_by_filename = {}
         for share_name, documents in self._documents_by_share.items():
             self._doc_by_filename[share_name] = {}
-            for doc in documents:
+            # Sort by ID to ensure deterministic collision resolution
+            for doc in sorted(documents, key=lambda d: d.id):
                 base_name = sanitize_filename(doc.title)
                 filename = f"{base_name}.pdf"
                 if filename in self._doc_by_filename[share_name]:
@@ -558,6 +561,8 @@ class ShareResource(DAVCollection):  # type: ignore[misc]
 
         When multiple documents have the same sanitized filename,
         a warning is logged and the document ID is appended to disambiguate.
+        The document with the LOWEST ID always gets the base filename to ensure
+        deterministic behavior across requests.
 
         Returns:
             List of documents for this share
@@ -565,12 +570,14 @@ class ShareResource(DAVCollection):  # type: ignore[misc]
         if self._loaded_documents is None:
             self._loaded_documents = self._load_documents()
             # Build filename index with collision detection
+            # Sort by ID to ensure deterministic collision resolution
             self._doc_by_filename = {}
-            for doc in self._loaded_documents:
+            for doc in sorted(self._loaded_documents, key=lambda d: d.id):
                 base_name = sanitize_filename(doc.title)
                 filename = f"{base_name}.pdf"
                 if filename in self._doc_by_filename:
                     # Collision detected - append document ID to disambiguate
+                    # The document with the lower ID keeps the base name
                     existing_doc = self._doc_by_filename[filename]
                     logger.warning(
                         "filename_collision",
@@ -832,6 +839,8 @@ class DoneFolderResource(DAVCollection):  # type: ignore[misc]
 
         When multiple documents have the same sanitized filename,
         a warning is logged and the document ID is appended to disambiguate.
+        The document with the LOWEST ID always gets the base filename to ensure
+        deterministic behavior across requests.
 
         Returns:
             List of documents with done_tag
@@ -839,12 +848,14 @@ class DoneFolderResource(DAVCollection):  # type: ignore[misc]
         if self._loaded_documents is None:
             self._loaded_documents = self._load_documents()
             # Build filename index with collision detection
+            # Sort by ID to ensure deterministic collision resolution
             self._doc_by_filename = {}
-            for doc in self._loaded_documents:
+            for doc in sorted(self._loaded_documents, key=lambda d: d.id):
                 base_name = sanitize_filename(doc.title)
                 filename = f"{base_name}.pdf"
                 if filename in self._doc_by_filename:
                     # Collision detected - append document ID to disambiguate
+                    # The document with the lower ID keeps the base name
                     existing_doc = self._doc_by_filename[filename]
                     logger.warning(
                         "filename_collision",
