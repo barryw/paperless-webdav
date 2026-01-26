@@ -1151,6 +1151,14 @@ class DocumentResource(DAVNonCollection):  # type: ignore[misc]
         """
         return True
 
+    def support_ranges(self) -> bool:
+        """Indicate whether this resource supports Range requests.
+
+        Returns:
+            True, as documents support byte range requests
+        """
+        return True
+
     @staticmethod
     def _parse_iso_datetime(iso_string: str) -> datetime:
         """Parse an ISO 8601 datetime string.
