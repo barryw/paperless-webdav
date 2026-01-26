@@ -26,8 +26,8 @@ spec:
                 topologyKey: kubernetes.io/hostname
       containers:
         - name: paperless-webdav
-          # Image tag is set by CI pipeline via kubectl set image
-          image: ghcr.io/barryw/paperless-webdav:v1.0.0
+          # Use latest tag - CI pushes both version tag and latest
+          image: ghcr.io/barryw/paperless-webdav:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 8080

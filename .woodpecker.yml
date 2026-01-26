@@ -107,8 +107,8 @@ steps:
       # Prepare OCI labels
       - 'CHANGELOG=$(cat /woodpecker/changelog.txt 2>/dev/null | tr "\n" " " | sed "s/\"/\\\\\"/g" || echo "Release $VERSION")'
       - 'BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")'
-      - 'echo "Building image: ghcr.io/barryw/paperless-webdav:$VERSION"'
-      - '/kaniko/executor --dockerfile=Dockerfile --context=. --destination=ghcr.io/barryw/paperless-webdav:$VERSION --label "org.opencontainers.image.version=$VERSION" --label "org.opencontainers.image.created=$BUILD_DATE" --label "org.opencontainers.image.description=$CHANGELOG" --label "org.opencontainers.image.revision=$CI_COMMIT_SHA"'
+      - 'echo "Building image: ghcr.io/barryw/paperless-webdav:$VERSION (also tagged as latest)"'
+      - '/kaniko/executor --dockerfile=Dockerfile --context=. --destination=ghcr.io/barryw/paperless-webdav:$VERSION --destination=ghcr.io/barryw/paperless-webdav:latest --label "org.opencontainers.image.version=$VERSION" --label "org.opencontainers.image.created=$BUILD_DATE" --label "org.opencontainers.image.description=$CHANGELOG" --label "org.opencontainers.image.revision=$CI_COMMIT_SHA"'
     depends_on: [version-bump]
 
   # ============================================
