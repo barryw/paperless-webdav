@@ -75,9 +75,9 @@ def run_servers() -> None:
     if settings.ldap_bind_password:
         ldap_bind_password = settings.ldap_bind_password.get_secret_value()
 
-    redis_password = None
-    if settings.redis_password:
-        redis_password = settings.redis_password.get_secret_value()
+    redis_lock_password = None
+    if settings.redis_lock_password:
+        redis_lock_password = settings.redis_lock_password.get_secret_value()
 
     webdav_server = WebDAVServer(
         host="0.0.0.0",
@@ -90,10 +90,10 @@ def run_servers() -> None:
         ldap_base_dn=settings.ldap_base_dn,
         ldap_bind_dn=settings.ldap_bind_dn,
         ldap_bind_password=ldap_bind_password,
-        redis_host=settings.redis_host,
-        redis_port=settings.redis_port,
-        redis_db=settings.redis_db,
-        redis_password=redis_password,
+        redis_host=settings.redis_lock_host,
+        redis_port=settings.redis_lock_port,
+        redis_db=settings.redis_lock_db,
+        redis_password=redis_lock_password,
     )
 
     # Run WebDAV server in background thread

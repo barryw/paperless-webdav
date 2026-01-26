@@ -83,7 +83,8 @@ spec:
             - name: LOG_LEVEL
               value: "INFO"
             # Redis for distributed WebDAV lock storage
-            - name: REDIS_HOST
+            # Using REDIS_LOCK_* to avoid collision with k8s service discovery vars
+            - name: REDIS_LOCK_HOST
               value: "redis"
           resources:
             requests:

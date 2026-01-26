@@ -42,10 +42,13 @@ class Settings(BaseSettings):
     log_format: str = Field(default="json", pattern="^(json|console)$")
 
     # Redis (for distributed lock storage)
-    redis_host: str | None = Field(default=None, description="Redis host for distributed locks")
-    redis_port: int = Field(default=6379, description="Redis port")
-    redis_db: int = Field(default=0, description="Redis database number")
-    redis_password: SecretStr | None = Field(default=None, description="Redis password")
+    # Using "lock_" prefix to avoid collision with Kubernetes service discovery env vars
+    redis_lock_host: str | None = Field(
+        default=None, description="Redis host for distributed locks"
+    )
+    redis_lock_port: int = Field(default=6379, description="Redis port")
+    redis_lock_db: int = Field(default=0, description="Redis database number")
+    redis_lock_password: SecretStr | None = Field(default=None, description="Redis password")
 
     model_config = {"env_prefix": "", "case_sensitive": False}
 
