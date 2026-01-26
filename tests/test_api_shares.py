@@ -107,7 +107,6 @@ async def test_create_share(app_with_auth, mock_user, mock_session):
                 include_tags=["tax", "2025"],
                 exclude_tags=[],
                 expires_at=None,
-
                 done_folder_enabled=False,
                 done_folder_name="done",
                 done_tag=None,
@@ -174,7 +173,6 @@ async def test_list_shares_with_items(app_with_auth, mock_user, mock_session):
                 include_tags=["important"],
                 exclude_tags=["archived"],
                 expires_at=None,
-
                 done_folder_enabled=True,
                 done_folder_name="processed",
                 done_tag="processed",
@@ -206,7 +204,6 @@ async def test_get_share(app_with_auth, mock_user, mock_session):
             include_tags=["tax", "2025"],
             exclude_tags=[],
             expires_at=None,
-
             done_folder_enabled=False,
             done_folder_name="done",
             done_tag=None,
@@ -248,7 +245,6 @@ async def test_update_share(app_with_auth, mock_user, mock_session):
             include_tags=["tax", "2025"],
             exclude_tags=[],
             expires_at=None,
-
             done_folder_enabled=False,
             done_folder_name="done",
             done_tag=None,
@@ -265,7 +261,6 @@ async def test_update_share(app_with_auth, mock_user, mock_session):
                     include_tags=["tax", "2025", "receipts"],  # Updated
                     exclude_tags=["personal"],  # Updated
                     expires_at=None,
-    
                     done_folder_enabled=False,
                     done_folder_name="done",
                     done_tag=None,
@@ -313,7 +308,6 @@ async def test_create_share_duplicate_name(app_with_auth, mock_user, mock_sessio
             include_tags=["tax"],
             exclude_tags=[],
             expires_at=None,
-
             done_folder_enabled=False,
             done_folder_name="done",
             done_tag=None,
@@ -367,7 +361,6 @@ async def test_create_share_with_done_folder(app_with_auth, mock_user, mock_sess
                 include_tags=["inbox"],
                 exclude_tags=[],
                 expires_at=None,
-
                 done_folder_enabled=True,
                 done_folder_name="processed",
                 done_tag="processed",
@@ -450,7 +443,6 @@ async def test_share_name_validation_valid_names(app_with_auth, mock_user, mock_
                     include_tags=["test"],
                     exclude_tags=[],
                     expires_at=None,
-    
                     done_folder_enabled=False,
                     done_folder_name="done",
                     done_tag=None,
