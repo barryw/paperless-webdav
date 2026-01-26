@@ -1075,7 +1075,13 @@ class DocumentResource(DAVNonCollection):  # type: ignore[misc]
         """
         # If we already have content loaded, use its size
         if self._content is not None:
-            return len(self._content)
+            size = len(self._content)
+            logger.info(
+                "get_content_length_from_instance",
+                document_id=self.document.id,
+                size=size,
+            )
+            return size
 
         # Check if we have actual content cached (not just HEAD-derived size)
         cache = get_cache()
@@ -1083,14 +1089,20 @@ class DocumentResource(DAVNonCollection):  # type: ignore[misc]
         if cached_content is not None:
             # Content is cached, so size is accurate
             self._content = cached_content
-            return len(self._content)
+            size = len(self._content)
+            logger.info(
+                "get_content_length_from_cache",
+                document_id=self.document.id,
+                size=size,
+            )
+            return size
 
         # No content cached - download it to ensure accurate size
         # This is necessary because HEAD-derived sizes may differ from GET content
         content = self._download_content()
         size = len(content)
-        logger.debug(
-            "get_content_length",
+        logger.info(
+            "get_content_length_downloaded",
             document_id=self.document.id,
             size=size,
         )
@@ -1106,7 +1118,7 @@ class DocumentResource(DAVNonCollection):  # type: ignore[misc]
             File-like object containing document content
         """
         content = self._download_content()
-        logger.debug(
+        logger.info(
             "get_content_returning",
             document_id=self.document.id,
             content_size=len(content),
