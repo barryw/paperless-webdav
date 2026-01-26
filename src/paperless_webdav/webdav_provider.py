@@ -995,6 +995,8 @@ class DocumentResource(DAVNonCollection):  # type: ignore[misc]
         """Download document content from Paperless API.
 
         Uses a global cache to avoid re-downloading the same document.
+        Also verifies and updates the size cache to ensure Content-Length
+        consistency (HEAD requests may return different sizes than GET).
 
         Returns:
             Document content as bytes, or empty bytes on error
@@ -1013,12 +1015,24 @@ class DocumentResource(DAVNonCollection):  # type: ignore[misc]
         if client is not None:
             try:
                 self._content = run_async(client.download_document(self.document.id))
-                # Store in global cache
+                actual_size = len(self._content)
+
+                # Check if cached size differs from actual size (HEAD vs GET mismatch)
+                cached_size = cache.get_size(self.document.id)
+                if cached_size is not None and cached_size != actual_size:
+                    logger.warning(
+                        "size_mismatch_corrected",
+                        document_id=self.document.id,
+                        cached_size=cached_size,
+                        actual_size=actual_size,
+                    )
+
+                # Store in global cache (this also updates size cache)
                 cache.set_content(self.document.id, self._content)
                 logger.debug(
                     "downloaded_document_content",
                     document_id=self.document.id,
-                    size=len(self._content),
+                    size=actual_size,
                 )
                 return self._content
             except Exception as exc:
@@ -1040,8 +1054,10 @@ class DocumentResource(DAVNonCollection):  # type: ignore[misc]
     def get_content_length(self) -> int | None:
         """Return the content length.
 
-        Uses cached size when available. With Redis cache (multi-pod),
-        the cache is shared so sizes are consistent across pods.
+        Always downloads content if not already loaded to ensure the
+        Content-Length matches the actual content that get_content() returns.
+        This avoids mismatches where HEAD-derived cached sizes differ from
+        actual GET content sizes.
 
         Returns:
             Content length in bytes, or None if unknown
@@ -1050,13 +1066,16 @@ class DocumentResource(DAVNonCollection):  # type: ignore[misc]
         if self._content is not None:
             return len(self._content)
 
-        # Check cache for size (shared via Redis in multi-pod deployments)
+        # Check if we have actual content cached (not just HEAD-derived size)
         cache = get_cache()
-        cached_size = cache.get_size(self.document.id)
-        if cached_size is not None:
-            return cached_size
+        cached_content = cache.get_content(self.document.id)
+        if cached_content is not None:
+            # Content is cached, so size is accurate
+            self._content = cached_content
+            return len(self._content)
 
-        # Download content to get accurate size (also caches it)
+        # No content cached - download it to ensure accurate size
+        # This is necessary because HEAD-derived sizes may differ from GET content
         content = self._download_content()
         size = len(content)
         logger.debug(
