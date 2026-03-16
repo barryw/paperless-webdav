@@ -1,0 +1,51 @@
+# Custom TLS certificates
+#
+# Place your certificate and key in the certs/ directory, then
+# add the certs volume to the caddy service in docker-compose.yml:
+#
+#   volumes:
+#     - ./Caddyfile:/etc/caddy/Caddyfile:ro
+#     - ./certs:/etc/caddy/certs:ro
+#
+# Usage:
+#   mkdir certs
+#   cp /path/to/your.crt certs/paperless-dav.crt
+#   cp /path/to/your.key certs/paperless-dav.key
+#   cp caddy/Caddyfile.custom-certs Caddyfile
+#   docker compose up -d
+{
+	auto_https off
+}
+
+:80 {
+	redir * https://{host}{uri} permanent
+}
+
+:443 {
+	tls /etc/caddy/certs/paperless-dav.crt /etc/caddy/certs/paperless-dav.key
+
+	# Admin UI
+	handle /ui/* {
+		reverse_proxy app:8080
+	}
+
+	# Auth routes
+	handle /auth/* {
+		reverse_proxy app:8080
+	}
+
+	# Static files
+	handle /static/* {
+		reverse_proxy app:8080
+	}
+
+	# Root redirect to login
+	handle / {
+		redir * /ui/login permanent
+	}
+
+	# Everything else goes to WebDAV
+	handle /* {
+		reverse_proxy app:8081
+	}
+}

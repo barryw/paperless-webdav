@@ -1,6 +1,14 @@
-{$SITE_HOST:localhost} {
-	tls internal
+# Automatic HTTPS via Let's Encrypt
+#
+# Caddy will automatically obtain and renew certificates.
+# Set SITE_HOST in your .env to your public domain.
+#
+# Usage:
+#   cp caddy/Caddyfile.letsencrypt Caddyfile
+#   echo "SITE_HOST=paperless-dav.example.com" >> .env
+#   docker compose up -d
 
+{$SITE_HOST} {
 	# Admin UI
 	handle /ui/* {
 		reverse_proxy app:8080

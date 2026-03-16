@@ -81,6 +81,8 @@ Perfect for tax season, audits, or any time you need to work with a subset of do
 
 5. Access the admin UI at `https://localhost` (or your configured domain)
 
+> **Note:** By default, Caddy uses a self-signed certificate (`tls internal`). Your browser will show a certificate warning — this is safe to accept for local use. For production TLS options, see [TLS Configuration](#tls-configuration) below.
+
 ### Kubernetes
 
 See the [`k8s/`](k8s/) directory for example manifests. You'll need:
@@ -117,6 +119,7 @@ kubectl apply -f k8s/
 | `COOKIE_SECURE` | No | `false` | Set `true` for HTTPS (required in production) |
 | `LOG_LEVEL` | No | `INFO` | Logging level: DEBUG, INFO, WARNING, ERROR |
 | `LOG_FORMAT` | No | `json` | Log format: `json` or `console` |
+| `SITE_HOST` | No | `localhost` | Hostname for TLS certificate generation (used by Caddy) |
 
 ### OIDC Configuration (when `AUTH_MODE=oidc`)
 
@@ -129,6 +132,33 @@ kubectl apply -f k8s/
 | `LDAP_BASE_DN` | No | LDAP base DN (e.g., `dc=ldap,dc=goauthentik,dc=io`) |
 | `LDAP_BIND_DN` | No | Service account DN for LDAP searches |
 | `LDAP_BIND_PASSWORD` | No | Service account password |
+
+### TLS Configuration
+
+The default `Caddyfile` uses Caddy's built-in CA to generate self-signed certificates — no setup required. Set `SITE_HOST` in your `.env` to match the hostname you'll use to access the service (defaults to `localhost`):
+
+```bash
+# If accessing via a hostname other than localhost
+SITE_HOST=paperless-dav.lan
+```
+
+Alternative Caddy configurations are provided in the [`caddy/`](caddy/) directory for production use:
+
+| File | Use case | Setup |
+|------|----------|-------|
+| `Caddyfile` (default) | Local / LAN | Works out of the box with self-signed certs. Set `SITE_HOST` to your hostname. |
+| `caddy/Caddyfile.letsencrypt` | Public domain with auto HTTPS | Caddy obtains and renews Let's Encrypt certificates automatically. |
+| `caddy/Caddyfile.custom-certs` | Bring your own certificates | For internal CAs, wildcard certs, or any pre-existing certificates. |
+
+To switch configurations:
+
+```bash
+# Let's Encrypt (set SITE_HOST in .env to your public domain)
+cp caddy/Caddyfile.letsencrypt Caddyfile
+
+# Custom certificates (see instructions at the top of the file)
+cp caddy/Caddyfile.custom-certs Caddyfile
+```
 
 ### Generating the Encryption Key
 
