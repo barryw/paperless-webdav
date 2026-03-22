@@ -86,6 +86,8 @@ spec:
             # Using REDIS_LOCK_* to avoid collision with k8s service discovery vars
             - name: REDIS_LOCK_HOST
               value: "redis"
+            - name: REDIS_LOCK_DB
+              value: "3"
           resources:
             requests:
               memory: "128Mi"

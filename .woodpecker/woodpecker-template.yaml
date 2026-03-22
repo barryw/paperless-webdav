@@ -1,0 +1,23 @@
+template: release-docker
+data:
+  test_image: "python:3.12-slim"
+  image_name: paperless-webdav
+  setup_commands:
+    - "apt-get update && apt-get install -y gcc libldap2-dev libsasl2-dev"
+    - "pip install uv"
+    - "uv sync --frozen --all-extras"
+  lint_commands:
+    - "uv run ruff check src/ tests/"
+    - "uv run ruff format --check src/ tests/"
+    - "uv run mypy src/"
+  test_commands:
+    - "uv run pytest --tb=short -q"
+  test_environment:
+    PAPERLESS_URL: "http://paperless.test"
+    DATABASE_URL: "postgresql://test:test@localhost/test"
+    ENCRYPTION_KEY: "aa8D7QnZUqkFGBniEyIfESXitQUijPhSjQZLIqltUy4="
+    SECRET_KEY: "test-secret-key-for-sessions"
+  k8s_deploy: true
+  k8s_namespace: default
+  k8s_deployment: paperless-webdav
+  k8s_container: paperless-webdav
