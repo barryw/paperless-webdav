@@ -38,6 +38,14 @@ steps:
           *) echo "Invalid release tag: $TAG" >&2; exit 1 ;;
         esac
 
+        export DOCKER_CONFIG
+        DOCKER_CONFIG=$(mktemp -d)
+        trap 'rm -rf "$DOCKER_CONFIG"' EXIT
+        mkdir -p "$DOCKER_CONFIG/cli-plugins"
+        ln -s /Applications/OrbStack.app/Contents/MacOS/xbin/docker-buildx \
+          "$DOCKER_CONFIG/cli-plugins/docker-buildx"
+        docker buildx version >/dev/null
+
         # Release plugin creates the tag before Kaniko finishes its amd64 image.
         for attempt in $(seq 1 60); do
           if docker buildx imagetools inspect "$IMAGE:$TAG" >/dev/null 2>&1; then
@@ -48,8 +56,6 @@ steps:
         done
         docker buildx imagetools inspect "$IMAGE:$TAG" >/dev/null
 
-        export DOCKER_CONFIG
-        DOCKER_CONFIG=$(mktemp -d)
         BUILDER="paperless-webdav-$CI_PIPELINE_NUMBER-$(date +%s)"
         trap 'docker buildx rm "$BUILDER" >/dev/null 2>&1 || true; rm -rf "$DOCKER_CONFIG"' EXIT
         printf '%s' "$GH_TOKEN" | docker login ghcr.io -u barryw --password-stdin
