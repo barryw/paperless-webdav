@@ -2,6 +2,12 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v2.4.3](https://github.com/barryw/paperless-webdav/compare/a32922a78491c46f80124bee42565705621882c6..v2.4.3) - 2026-10-28
+#### Bug Fixes
+- (**ci**) expose Buildx plugin and scope deploy RBAC - ([a32922a](https://github.com/barryw/paperless-webdav/commit/a32922a78491c46f80124bee42565705621882c6)) - Barry Walker
+
+- - -
+
 ## [v2.4.2](https://github.com/barryw/paperless-webdav/compare/cfe7c203cfad649e618d89d11780cec94c38654d..v2.4.2) - 2026-10-28
 #### Bug Fixes
 - (**ci**) publish multiarch images in Woodpecker - ([cfe7c20](https://github.com/barryw/paperless-webdav/commit/cfe7c203cfad649e618d89d11780cec94c38654d)) - Barry Walker
