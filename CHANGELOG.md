@@ -2,6 +2,13 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v2.4.1](https://github.com/barryw/paperless-webdav/compare/3934cd921281b4c53309d69cd8a6688df27ca5d6..v2.4.1) - 2026-10-28
+#### Bug Fixes
+- (**ci**) preserve OCI labels in multi-arch release image - ([deb3412](https://github.com/barryw/paperless-webdav/commit/deb34120db97a0a2dac3e23a744d59740a4a51f5)) - Barry Walker
+- (**ci**) publish multi-architecture images and include MIT license - ([3934cd9](https://github.com/barryw/paperless-webdav/commit/3934cd921281b4c53309d69cd8a6688df27ca5d6)) - Barry Walker
+
+- - -
+
 ## [v2.4.0](https://github.com/barryw/paperless-webdav/compare/35b3fd92fbc014dc314c695b1bf1a24c6f0f6a01..v2.4.0) - 2026-10-28
 #### Features
 - (**webdav**) add WEBDAV_DOCUMENT_LIST_TTL to cache share document lists - ([aff91f6](https://github.com/barryw/paperless-webdav/commit/aff91f631d387eae48b707355a213513efca89ff)) - Spencer Boucher
