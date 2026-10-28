@@ -225,6 +225,8 @@ def create_webdav_app(
     redis_port: int = 6379,
     redis_db: int = 0,
     redis_password: str | None = None,
+    stream_downloads: bool = False,
+    document_list_ttl: int = 0,
 ) -> WsgiDAVApp:
     """Create the wsgidav WSGI application.
 
@@ -245,7 +247,12 @@ def create_webdav_app(
     Returns:
         Configured WsgiDAVApp instance
     """
-    provider = PaperlessProvider(paperless_url=paperless_url, share_loader=share_loader)
+    provider = PaperlessProvider(
+        paperless_url=paperless_url,
+        share_loader=share_loader,
+        stream_downloads=stream_downloads,
+        document_list_ttl=document_list_ttl,
+    )
 
     # Create authenticator class that captures our configuration
     AuthenticatorClass = _make_authenticator_class(
@@ -331,6 +338,8 @@ class WebDAVServer:
         redis_port: int = 6379,
         redis_db: int = 0,
         redis_password: str | None = None,
+        stream_downloads: bool = False,
+        document_list_ttl: int = 0,
     ) -> None:
         """Initialize the WebDAV server.
 
@@ -363,6 +372,8 @@ class WebDAVServer:
             redis_port=redis_port,
             redis_db=redis_db,
             redis_password=redis_password,
+            stream_downloads=stream_downloads,
+            document_list_ttl=document_list_ttl,
         )
         self._server = cheroot.wsgi.Server(
             (host, port),

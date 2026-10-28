@@ -102,6 +102,8 @@ def run_servers() -> None:
         redis_port=settings.redis_lock_port,
         redis_db=settings.redis_lock_db,
         redis_password=redis_lock_password,
+        stream_downloads=settings.webdav_stream_downloads,
+        document_list_ttl=settings.webdav_document_list_ttl,
     )
 
     # Run WebDAV server in background thread

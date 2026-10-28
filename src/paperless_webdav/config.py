@@ -50,6 +50,25 @@ class Settings(BaseSettings):
     redis_lock_db: int = Field(default=0, description="Redis database number")
     redis_lock_password: SecretStr | None = Field(default=None, description="Redis password")
 
+    # WebDAV performance tuning. Defaults preserve the historical buffered
+    # download path and always-fresh document listing.
+    webdav_stream_downloads: bool = Field(
+        default=False,
+        description=(
+            "Stream document bodies straight from Paperless to the WebDAV client "
+            "instead of buffering the full archive first. Lower TTFB and memory; "
+            "skips the in-memory content cache."
+        ),
+    )
+    webdav_document_list_ttl: int = Field(
+        default=0,
+        description=(
+            "Seconds to cache the per-share document list. 0 disables the cache "
+            "(every request re-paginates from Paperless). Invalidated on WebDAV "
+            "writes that change membership."
+        ),
+    )
+
     model_config = {"env_prefix": "", "case_sensitive": False}
 
 

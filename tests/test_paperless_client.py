@@ -436,3 +436,130 @@ async def test_get_users_handles_missing_names(client: PaperlessClient, base_url
 
     assert len(users) == 1
     assert users[0] == PaperlessUser(id=1, username="alice", first_name="", last_name="")
+
+
+# -----------------------------------------------------------------------------
+# Document size probes -- regression coverage for upstream issue #3
+# (PROPFIND used to download every document to compute Content-Length because
+# the HEAD-based size disagreed with the served archive size.)
+# -----------------------------------------------------------------------------
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_get_document_size_prefers_archive_size(
+    client: PaperlessClient, base_url: str
+) -> None:
+    """Archive size is returned when both archive and original are present."""
+    respx.get(f"{base_url}/api/documents/42/metadata/").mock(
+        return_value=Response(
+            200,
+            json={"original_size": 765080, "archive_size": 1515552},
+        )
+    )
+
+    size = await client.get_document_size(42)
+
+    assert size == 1515552
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_get_document_size_falls_back_to_original_when_no_archive(
+    client: PaperlessClient, base_url: str
+) -> None:
+    """When the document has no archive (e.g. PAPERLESS_OCR_SKIP_ARCHIVE_FILE
+    skipped it), the served body is the original and original_size is correct."""
+    respx.get(f"{base_url}/api/documents/7/metadata/").mock(
+        return_value=Response(
+            200,
+            json={"original_size": 200000, "archive_size": None},
+        )
+    )
+
+    size = await client.get_document_size(7)
+
+    assert size == 200000
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_get_document_size_returns_none_on_failure(
+    client: PaperlessClient, base_url: str
+) -> None:
+    """Errors are swallowed -- a failed probe is just a cache miss."""
+    respx.get(f"{base_url}/api/documents/99/metadata/").mock(return_value=Response(500))
+
+    size = await client.get_document_size(99)
+
+    assert size is None
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_get_document_sizes_batch_populates_for_each_id(
+    client: PaperlessClient, base_url: str
+) -> None:
+    """The batch probe issues one /metadata/ request per id and returns the
+    served size for each that succeeded. This is what prefetch_document_sizes()
+    relies on -- if it ever falls back to /download/ HEAD again, the size will
+    be the smaller original-file size and get_content_length() will trigger a
+    full re-download for every member during PROPFIND."""
+    respx.get(f"{base_url}/api/documents/1/metadata/").mock(
+        return_value=Response(200, json={"original_size": 100, "archive_size": 200})
+    )
+    respx.get(f"{base_url}/api/documents/2/metadata/").mock(
+        return_value=Response(200, json={"original_size": 50, "archive_size": None})
+    )
+    respx.get(f"{base_url}/api/documents/3/metadata/").mock(return_value=Response(404))
+
+    sizes = await client.get_document_sizes_batch([1, 2, 3])
+
+    assert sizes == {1: 200, 2: 50}
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_get_document_sizes_batch_does_not_hit_download_endpoint(
+    client: PaperlessClient, base_url: str
+) -> None:
+    """Regression: the batch probe must not touch /download/. If it does, the
+    server is being asked to serve real archive bytes during PROPFIND, which is
+    exactly the issue-#3 regression. Mock /download/ separately so any call
+    counts toward this assertion."""
+    download_route = respx.get(f"{base_url}/api/documents/1/download/").mock(
+        return_value=Response(200, content=b"never-served")
+    )
+    respx.get(f"{base_url}/api/documents/1/metadata/").mock(
+        return_value=Response(200, json={"original_size": 100, "archive_size": 200})
+    )
+
+    await client.get_document_sizes_batch([1])
+
+    assert download_route.call_count == 0
+
+
+def test_open_document_stream_yields_body_incrementally(
+    client: PaperlessClient, base_url: str
+) -> None:
+    """open_document_stream returns a sync file-like that wsgidav can read
+    in fixed-size blocks. This is the path the WEBDAV_STREAM_DOWNLOADS opt-in
+    runs on the GET hot path; regressing it to a buffer-everything behaviour
+    would re-introduce the ~15 s TTFB on 80 MB docs."""
+    import respx as _respx
+    from httpx import Response as _Response
+
+    body = b"%PDF-1.4 " + b"a" * (200 * 1024) + b"\n%%EOF"
+    with _respx.mock(assert_all_called=False) as router:
+        router.get(f"{base_url}/api/documents/42/download/").mock(
+            return_value=_Response(200, content=body)
+        )
+        stream = client.open_document_stream(42)
+        try:
+            first = stream.read(64 * 1024)
+            assert len(first) == 64 * 1024
+            assert first.startswith(b"%PDF-1.4 ")
+            rest = stream.read()
+            assert first + rest == body
+        finally:
+            stream.close()

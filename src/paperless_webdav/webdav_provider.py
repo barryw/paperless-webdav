@@ -31,6 +31,76 @@ from paperless_webdav.paperless_client import PaperlessClient, PaperlessDocument
 DocumentList = list[PaperlessDocument]
 
 
+def _document_list_cache_key(
+    environ: dict[str, Any],
+    namespace: str,
+    include_tag_ids: list[int],
+    exclude_tag_ids: list[int],
+) -> str:
+    """Build the cache key for a tag-filtered document list.
+
+    Namespacing by token keeps one user's invalidation from clobbering
+    another's view; namespacing by share+role keeps the share root and its
+    done folder as separate entries; including the sorted include/exclude
+    ids means a different filter combination is a different cache entry.
+
+    Keys are formatted so that `:{share_name}:` appears verbatim, which is
+    what `CacheBackend.invalidate_document_lists(share_name)` matches on.
+    """
+    token = environ.get("paperless.token", "")
+    token_key = token[:16] if len(token) >= 16 else token
+    inc = ",".join(str(i) for i in sorted(include_tag_ids))
+    exc = ",".join(str(i) for i in sorted(exclude_tag_ids))
+    return f"{token_key}:{namespace}:{inc}:{exc}"
+
+
+def _load_documents_cached(
+    client: PaperlessClient,
+    environ: dict[str, Any],
+    namespace: str,
+    include_tag_ids: list[int],
+    exclude_tag_ids: list[int],
+    ttl: int,
+) -> DocumentList:
+    """Fetch the tag-filtered document list, optionally consulting the cache.
+
+    When `ttl <= 0` (the default for WEBDAV_DOCUMENT_LIST_TTL=0) the cache is
+    bypassed -- every call paginates the full list from Paperless. When
+    `ttl > 0`, the cache is consulted and populated with the given TTL.
+
+    Without this cache every WebDAV request that resolves a path under a
+    share (PROPFIND, GET, HEAD, PUT, MOVE, ...) re-paginates the whole
+    document list. For a ~130-doc share that is ~12 s of sequential page
+    fetches on every request.
+    """
+    from dataclasses import asdict as _asdict
+
+    if ttl <= 0:
+        return run_async(
+            client.get_documents(
+                include_tag_ids=include_tag_ids,
+                exclude_tag_ids=exclude_tag_ids,
+            )
+        )
+
+    cache = get_cache()
+    cache_key = _document_list_cache_key(environ, namespace, include_tag_ids, exclude_tag_ids)
+    cached = cache.get_document_list(cache_key)
+    if cached is not None:
+        logger.debug("documents_cache_hit", namespace=namespace, count=len(cached))
+        return [PaperlessDocument(**doc) for doc in cached]
+
+    documents = run_async(
+        client.get_documents(
+            include_tag_ids=include_tag_ids,
+            exclude_tag_ids=exclude_tag_ids,
+        )
+    )
+    cache.set_document_list(cache_key, [_asdict(d) for d in documents], ttl=ttl)
+    logger.debug("documents_cache_miss", namespace=namespace, count=len(documents))
+    return documents
+
+
 def prefetch_document_sizes(client: PaperlessClient, documents: DocumentList) -> None:
     """Pre-fetch and cache sizes for all documents concurrently.
 
@@ -206,6 +276,8 @@ class PaperlessProvider(DAVProvider):  # type: ignore[misc]
         documents_by_share: dict[str, list[PaperlessDocument]] | None = None,
         paperless_url: str | None = None,
         share_loader: Callable[[], dict[str, Any]] | None = None,
+        stream_downloads: bool = False,
+        document_list_ttl: int = 0,
     ) -> None:
         """Initialize the provider.
 
@@ -216,12 +288,19 @@ class PaperlessProvider(DAVProvider):  # type: ignore[misc]
             paperless_url: Base URL of the Paperless-ngx instance for dynamic
                 document loading
             share_loader: Callable that returns dict of share configs (for dynamic loading)
+            stream_downloads: When True, GETs stream from Paperless without
+                buffering the archive. Skips the in-memory content cache.
+                Default False preserves the legacy buffered+cached behaviour.
+            document_list_ttl: Seconds to cache per-share document listings.
+                0 disables the cache (every request paginates from Paperless).
         """
         super().__init__()
         self._shares: dict[str, Share] = shares or {}
         self._documents_by_share: dict[str, list[PaperlessDocument]] = documents_by_share or {}
         self._paperless_url: str | None = paperless_url
         self._share_loader: Callable[[], dict[str, Any]] | None = share_loader
+        self._stream_downloads: bool = stream_downloads
+        self._document_list_ttl: int = document_list_ttl
         # Build filename-to-document mapping for each share (static mode)
         self._doc_by_filename: dict[str, dict[str, PaperlessDocument]] = {}
         self._build_filename_index()
@@ -535,12 +614,15 @@ class ShareResource(DAVCollection):  # type: ignore[misc]
                 done_tag_ids = self._resolve_tag_ids_from_map(tag_map, [self._share.done_tag])
                 exclude_tag_ids.extend(done_tag_ids)
 
-            # Fetch documents with tag filters
-            documents = run_async(
-                client.get_documents(
-                    include_tag_ids=include_tag_ids,
-                    exclude_tag_ids=exclude_tag_ids,
-                )
+            # Fetch documents (consults the document-list cache when
+            # WEBDAV_DOCUMENT_LIST_TTL>0, otherwise paginates from Paperless).
+            documents = _load_documents_cached(
+                client,
+                self.environ,
+                namespace=f"{self._share.name}:root",
+                include_tag_ids=include_tag_ids,
+                exclude_tag_ids=exclude_tag_ids,
+                ttl=self._provider._document_list_ttl,
             )
             logger.debug(
                 "loaded_documents_dynamically",
@@ -813,12 +895,15 @@ class DoneFolderResource(DAVCollection):  # type: ignore[misc]
                 tag_map, list(self._share.exclude_tags)
             )
 
-            # Fetch documents with tag filters
-            documents = run_async(
-                client.get_documents(
-                    include_tag_ids=include_tag_ids,
-                    exclude_tag_ids=exclude_tag_ids,
-                )
+            # Fetch documents (consults the document-list cache when
+            # WEBDAV_DOCUMENT_LIST_TTL>0, otherwise paginates from Paperless).
+            documents = _load_documents_cached(
+                client,
+                self.environ,
+                namespace=f"{self._share.name}:done",
+                include_tag_ids=include_tag_ids,
+                exclude_tag_ids=exclude_tag_ids,
+                ttl=self._provider._document_list_ttl,
             )
             logger.debug(
                 "loaded_done_documents",
@@ -1028,10 +1113,13 @@ class DocumentResource(DAVNonCollection):  # type: ignore[misc]
                 self._content = run_async(client.download_document(self.document.id))
                 actual_size = len(self._content)
 
-                # Check if cached size differs from actual size (HEAD vs GET mismatch)
+                # Check if cached size differs from actual size. With the
+                # metadata-endpoint size prefetch in place, this is now rare and
+                # logged at debug rather than warn so a normal listing isn't
+                # noisy.
                 cached_size = cache.get_size(self.document.id)
                 if cached_size is not None and cached_size != actual_size:
-                    logger.warning(
+                    logger.debug(
                         "size_mismatch_corrected",
                         document_id=self.document.id,
                         cached_size=cached_size,
@@ -1065,10 +1153,17 @@ class DocumentResource(DAVNonCollection):  # type: ignore[misc]
     def get_content_length(self) -> int | None:
         """Return the content length.
 
-        Always downloads content if not already loaded to ensure the
-        Content-Length matches the actual content that get_content() returns.
-        This avoids mismatches where HEAD-derived cached sizes differ from
-        actual GET content sizes.
+        Prefers, in order: already-loaded content, cached content, the size
+        cache populated by prefetch_document_sizes() (queries Paperless's
+        /metadata/ endpoint for the served-variant size). What happens on a
+        full cache miss depends on the provider's stream_downloads setting:
+
+        - Streaming on: do a single /metadata/ probe (one cheap HTTP call).
+          If that fails too, return None and let wsgidav fall back to
+          chunked transfer rather than full-download just to learn a size.
+        - Streaming off: full download (matches pre-fork behaviour). Rarely
+          hit because prefetch_document_sizes already populated the size
+          cache for every PROPFIND member.
 
         Returns:
             Content length in bytes, or None if unknown
@@ -1077,30 +1172,89 @@ class DocumentResource(DAVNonCollection):  # type: ignore[misc]
         if self._content is not None:
             return len(self._content)
 
-        # Check if we have actual content cached (not just HEAD-derived size)
         cache = get_cache()
+
+        # Prefer cached content (size is exact)
         cached_content = cache.get_content(self.document.id)
         if cached_content is not None:
-            # Content is cached, so size is accurate
             self._content = cached_content
             return len(self._content)
 
-        # No content cached - download it to ensure accurate size
-        # This is necessary because HEAD-derived sizes may differ from GET content
+        # Fall back to the size cache populated by prefetch_document_sizes().
+        # The prefetch queries /api/documents/{id}/metadata/ which returns the
+        # archive size (the served variant), so this matches what get_content()
+        # will eventually return.
+        cached_size = cache.get_size(self.document.id)
+        if cached_size is not None:
+            return cached_size
+
+        if self._provider._stream_downloads:
+            # Streaming mode: one cheap /metadata/ probe; never a full download.
+            client = self._provider._create_client(self.environ)
+            if client is not None:
+                try:
+                    size = run_async(client.get_document_size(self.document.id))
+                    if size is not None:
+                        cache.set_size(self.document.id, size)
+                        return size
+                except Exception as exc:
+                    logger.debug(
+                        "size_probe_failed",
+                        document_id=self.document.id,
+                        error=str(exc),
+                    )
+            return None
+
+        # Buffered mode (default): full download as last resort. With the
+        # metadata-size prefetch in place this should be rare.
         content = self._download_content()
         return len(content)
 
-    def get_content(self) -> io.BytesIO:
+    def get_content(self) -> Any:
         """Return the document content as a file-like object.
 
-        Downloads the document content from Paperless API and returns
-        it as a BytesIO stream.
+        With stream_downloads enabled, returns a streaming wrapper around an
+        httpx response so the body flows through to the WebDAV client without
+        being buffered in this process. Otherwise, downloads the full archive
+        into the in-memory content cache and returns a BytesIO view of it
+        (the historical behaviour, useful when the same doc is re-read within
+        the cache TTL).
+
+        Falls back to a cached body (BytesIO) when one is available, and to
+        an empty body if no Paperless client can be created.
 
         Returns:
-            File-like object containing document content
+            File-like with read(size), close(), and (for the streaming path)
+            forward seek().
         """
-        content = self._download_content()
-        return io.BytesIO(content)
+        cache = get_cache()
+
+        if self._content is not None:
+            return io.BytesIO(self._content)
+
+        cached_content = cache.get_content(self.document.id)
+        if cached_content is not None:
+            self._content = cached_content
+            return io.BytesIO(cached_content)
+
+        if self._provider._stream_downloads:
+            client = self._provider._create_client(self.environ)
+            if client is None:
+                logger.warning("no_client_for_download", document_id=self.document.id)
+                return io.BytesIO(b"")
+            try:
+                return client.open_document_stream(self.document.id)
+            except Exception as exc:
+                logger.error(
+                    "download_document_failed",
+                    document_id=self.document.id,
+                    error=str(exc),
+                )
+                return io.BytesIO(b"")
+
+        # Buffered mode (default): download whole body and let
+        # _download_content populate the content cache.
+        return io.BytesIO(self._download_content())
 
     def get_creation_date(self) -> float:
         """Return the document creation date as Unix timestamp.
@@ -1461,6 +1615,7 @@ class DocumentResource(DAVNonCollection):  # type: ignore[misc]
                 document_id=self.document.id,
                 done_tag_id=done_tag_id,
             )
+            self._invalidate_share_document_lists()
             return True
         except Exception as exc:
             logger.error(
@@ -1503,6 +1658,7 @@ class DocumentResource(DAVNonCollection):  # type: ignore[misc]
                 document_id=self.document.id,
                 done_tag_id=done_tag_id,
             )
+            self._invalidate_share_document_lists()
             return True
         except Exception as exc:
             logger.error(
@@ -1512,6 +1668,28 @@ class DocumentResource(DAVNonCollection):  # type: ignore[misc]
                 error=str(exc),
             )
             return False
+
+    def _invalidate_share_document_lists(self) -> None:
+        """Drop cached document lists for this document's share after a write.
+
+        Keeps the cache strictly fresher than the TTL would on its own: an
+        in-WebDAV MOVE or DELETE never has to wait for the TTL to expire
+        before the change shows up in subsequent listings. Out-of-band
+        Paperless changes (e.g. tag edits in the web UI) still rely on the
+        TTL.
+        """
+        if self._provider._document_list_ttl <= 0:
+            return
+        if self._share is None:
+            return
+        try:
+            get_cache().invalidate_document_lists(self._share.name)
+        except Exception as exc:
+            logger.debug(
+                "invalidate_document_lists_failed",
+                share=self._share.name,
+                error=str(exc),
+            )
 
     def delete(self) -> None:
         """Handle deletion of document resource.
