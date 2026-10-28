@@ -45,6 +45,10 @@ jobs:
           echo "Woodpecker did not publish $IMAGE:$TAG" >&2
           exit 1
 
+      - name: Set image creation time
+        id: metadata
+        run: echo "created=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
+
       - name: Build and publish both architectures
         uses: docker/build-push-action@v6
         with:
@@ -53,6 +57,10 @@ jobs:
           push: true
           tags: ghcr.io/barryw/paperless-webdav:${{ github.event.release.tag_name }}
           provenance: false
+          labels: |
+            org.opencontainers.image.version=${{ github.event.release.tag_name }}
+            org.opencontainers.image.created=${{ steps.metadata.outputs.created }}
+            org.opencontainers.image.revision=${{ github.sha }}
 
       - name: Verify image and update latest
         env:
