@@ -21,6 +21,7 @@ RUN pip install uv
 
 # Copy project files
 COPY pyproject.toml uv.lock ./
+COPY LICENSE ./
 COPY src/ ./src/
 COPY alembic.ini ./
 COPY alembic/ ./alembic/
