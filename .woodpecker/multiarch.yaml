@@ -58,7 +58,9 @@ steps:
 
         BUILDER="paperless-webdav-$CI_PIPELINE_NUMBER-$(date +%s)"
         trap 'docker buildx rm "$BUILDER" >/dev/null 2>&1 || true; rm -rf "$DOCKER_CONFIG"' EXIT
-        printf '%s' "$GH_TOKEN" | docker login ghcr.io -u barryw --password-stdin
+        # CI has no login keychain; keep registry auth in the temporary config.
+        AUTH=$(printf 'barryw:%s' "$GH_TOKEN" | base64 | tr -d '\n')
+        printf '{"auths":{"ghcr.io":{"auth":"%s"}}}\n' "$AUTH" > "$DOCKER_CONFIG/config.json"
         docker buildx create --driver docker-container --name "$BUILDER" --bootstrap
 
         CREATED=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
