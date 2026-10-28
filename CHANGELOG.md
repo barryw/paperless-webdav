@@ -2,6 +2,12 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v2.4.4](https://github.com/barryw/paperless-webdav/compare/01a054a5c4864c2fe5dc10ae369d3527272f3f83..v2.4.4) - 2026-10-28
+#### Bug Fixes
+- (**ci**) use temporary Docker auth without macOS keychain - ([01a054a](https://github.com/barryw/paperless-webdav/commit/01a054a5c4864c2fe5dc10ae369d3527272f3f83)) - Barry Walker
+
+- - -
+
 ## [v2.4.3](https://github.com/barryw/paperless-webdav/compare/a32922a78491c46f80124bee42565705621882c6..v2.4.3) - 2026-10-28
 #### Bug Fixes
 - (**ci**) expose Buildx plugin and scope deploy RBAC - ([a32922a](https://github.com/barryw/paperless-webdav/commit/a32922a78491c46f80124bee42565705621882c6)) - Barry Walker
