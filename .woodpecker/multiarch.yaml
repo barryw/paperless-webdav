@@ -1,0 +1,79 @@
+# Published tags run on the existing macOS agent. Its Docker builder supports
+# both platforms without privileged Kubernetes pods.
+when:
+  - event: tag
+    ref: refs/tags/v*
+  - event: manual
+
+labels:
+  platform: darwin/arm64
+
+clone:
+  git:
+    image: woodpeckerci/plugin-git
+    settings:
+      tags: true
+
+steps:
+  - name: publish-multiarch
+    image: bash
+    environment:
+      GH_TOKEN:
+        from_secret: github_token
+    commands:
+      - |
+        set -eu
+        IMAGE=ghcr.io/barryw/paperless-webdav
+        TAG="$CI_COMMIT_TAG"
+        if [ "$CI_PIPELINE_EVENT" = manual ]; then
+          if ! TAG=$(printenv RELEASE_TAG); then
+            echo "Set RELEASE_TAG for manual backfill" >&2
+            exit 1
+          fi
+          git fetch origin "refs/tags/$TAG:refs/tags/$TAG"
+          git checkout --detach "$TAG"
+        fi
+        case "$TAG" in
+          v[0-9]*.[0-9]*.[0-9]*) ;;
+          *) echo "Invalid release tag: $TAG" >&2; exit 1 ;;
+        esac
+
+        # Release plugin creates the tag before Kaniko finishes its amd64 image.
+        for attempt in $(seq 1 60); do
+          if docker buildx imagetools inspect "$IMAGE:$TAG" >/dev/null 2>&1; then
+            break
+          fi
+          echo "Waiting for Woodpecker amd64 image ($attempt/60)"
+          sleep 10
+        done
+        docker buildx imagetools inspect "$IMAGE:$TAG" >/dev/null
+
+        export DOCKER_CONFIG
+        DOCKER_CONFIG=$(mktemp -d)
+        BUILDER="paperless-webdav-$CI_PIPELINE_NUMBER-$(date +%s)"
+        trap 'docker buildx rm "$BUILDER" >/dev/null 2>&1 || true; rm -rf "$DOCKER_CONFIG"' EXIT
+        printf '%s' "$GH_TOKEN" | docker login ghcr.io -u barryw --password-stdin
+        docker buildx create --driver docker-container --name "$BUILDER" --bootstrap
+
+        CREATED=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+        REVISION=$(git rev-parse HEAD)
+        docker buildx build \
+          --builder "$BUILDER" \
+          --platform linux/amd64,linux/arm64 \
+          --push \
+          --provenance=false \
+          --tag "$IMAGE:$TAG" \
+          --label "org.opencontainers.image.version=$TAG" \
+          --label "org.opencontainers.image.created=$CREATED" \
+          --label "org.opencontainers.image.revision=$REVISION" \
+          .
+
+        MANIFEST=$(docker buildx imagetools inspect --raw "$IMAGE:$TAG")
+        for ARCH in amd64 arm64; do
+          printf '%s' "$MANIFEST" | jq -e --arg arch "$ARCH" \
+            'any(.manifests[]; .platform.os == "linux" and .platform.architecture == $arch)'
+        done
+
+        if [ "$(gh release view --json tagName -q .tagName)" = "$TAG" ]; then
+          docker buildx imagetools create -t "$IMAGE:latest" "$IMAGE:$TAG"
+        fi
