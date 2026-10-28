@@ -2,6 +2,12 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v2.4.2](https://github.com/barryw/paperless-webdav/compare/cfe7c203cfad649e618d89d11780cec94c38654d..v2.4.2) - 2026-10-28
+#### Bug Fixes
+- (**ci**) publish multiarch images in Woodpecker - ([cfe7c20](https://github.com/barryw/paperless-webdav/commit/cfe7c203cfad649e618d89d11780cec94c38654d)) - Barry Walker
+
+- - -
+
 ## [v2.4.1](https://github.com/barryw/paperless-webdav/compare/3934cd921281b4c53309d69cd8a6688df27ca5d6..v2.4.1) - 2026-10-28
 #### Bug Fixes
 - (**ci**) preserve OCI labels in multi-arch release image - ([deb3412](https://github.com/barryw/paperless-webdav/commit/deb34120db97a0a2dac3e23a744d59740a4a51f5)) - Barry Walker
