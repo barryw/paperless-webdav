@@ -68,9 +68,7 @@ class PaperlessBasicAuthenticator(BaseDomainController):  # type: ignore[misc]
         self._ldap_bind_dn = ldap_bind_dn
         self._ldap_bind_password = ldap_bind_password
         if "{username}" not in ldap_user_filter:
-            raise ValueError(
-                "ldap_user_filter must contain the '{username}' placeholder"
-            )
+            raise ValueError("ldap_user_filter must contain the '{username}' placeholder")
         self._ldap_user_filter = ldap_user_filter
         self._user_tokens: dict[str, str] = {}
 
