@@ -196,7 +196,6 @@ class TestOidcCallback:
         assert user.username == "testuser"
         assert user.token == ""
 
-
     @pytest.mark.asyncio
     async def test_oidc_callback_uses_sub_if_no_preferred_username(self, oidc_app):
         """OIDC callback should use sub claim if preferred_username not present."""
