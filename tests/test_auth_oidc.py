@@ -67,6 +67,17 @@ def paperless_app(mock_paperless_settings):
     return create_app()
 
 
+@pytest.fixture(autouse=True)
+def mock_stored_token_lookup():
+    """Avoid real database access during OIDC callback unit tests."""
+    with patch(
+        "paperless_webdav.auth.paperless._load_token_from_db",
+        new_callable=AsyncMock,
+    ) as mock_lookup:
+        mock_lookup.return_value = None
+        yield mock_lookup
+
+
 class TestOidcLogin:
     """Tests for the /auth/login OIDC route."""
 
@@ -140,6 +151,51 @@ class TestOidcCallback:
         # Should set session cookie
         assert "session" in response.cookies
         assert len(response.cookies["session"]) > 0
+
+    @pytest.mark.asyncio
+    async def test_oidc_callback_skips_token_setup_when_stored_token_exists(
+        self, oidc_app, mock_stored_token_lookup
+    ):
+        """Returning OIDC users should reuse their stored Paperless token."""
+        mock_stored_token_lookup.return_value = "stored-paperless-token"
+        mock_token = {
+            "access_token": "test-access-token",
+            "userinfo": {
+                "sub": "user123",
+                "preferred_username": "testuser",
+            },
+        }
+
+        with patch("paperless_webdav.auth.oidc.get_oauth") as mock_get_oauth:
+            mock_oauth = MagicMock()
+            mock_oauth.authentik.authorize_access_token = AsyncMock(return_value=mock_token)
+            mock_get_oauth.return_value = mock_oauth
+
+            async with AsyncClient(
+                transport=ASGITransport(app=oidc_app), base_url="http://test"
+            ) as client:
+                response = await client.get(
+                    "/auth/callback?code=auth-code&state=test-state",
+                    follow_redirects=False,
+                )
+
+        assert response.status_code == 303
+        assert response.headers["location"] == "/ui/shares"
+
+        session_cookie = response.cookies.get("session")
+        assert session_cookie is not None
+
+        from paperless_webdav.auth.paperless import _validate_session
+        from paperless_webdav.config import get_settings
+
+        get_settings.cache_clear()
+        settings = get_settings()
+        user = _validate_session(session_cookie, settings)
+
+        assert user is not None
+        assert user.username == "testuser"
+        assert user.token == ""
+
 
     @pytest.mark.asyncio
     async def test_oidc_callback_uses_sub_if_no_preferred_username(self, oidc_app):
