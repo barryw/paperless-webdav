@@ -290,8 +290,10 @@ def create_webdav_app(
             "re_encode_path_info": True,
             # Don't force unquote (let WSGI framework handle it)
             "unquote_path_info": False,
-            # Accept 'OPTIONS /' as 'OPTIONS *' for WinXP/Vista compatibility
-            "treat_root_options_as_asterisk": True,
+            # Do not enable WsgiDAV's legacy WinXP/Vista root OPTIONS hotfix.
+            # WsgiDAV 4.3.3 applies it to every request at "/", causing
+            # PROPFIND / to be misrouted as OPTIONS * and return 200 HTML.
+            "treat_root_options_as_asterisk": False,
         },
         # Store references for request handlers
         "paperless_url": paperless_url,
