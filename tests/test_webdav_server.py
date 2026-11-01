@@ -2,6 +2,7 @@
 """Tests for WebDAV server setup."""
 
 from unittest.mock import MagicMock, patch
+from wsgiref.util import setup_testing_defaults
 
 from paperless_webdav.webdav_auth import PaperlessBasicAuthenticator
 from paperless_webdav.webdav_server import (
@@ -138,6 +139,81 @@ class TestCreateWebdavApp:
                     config = mock_wsgi_app.call_args[0][0]
                     assert "/" in config["provider_mapping"]
                     assert config["provider_mapping"]["/"] is mock_provider_instance
+
+    def test_disables_legacy_root_options_hotfix(self, mock_settings):
+        """Root OPTIONS compatibility must not hijack non-OPTIONS methods."""
+        with patch("paperless_webdav.webdav_server.WsgiDAVApp") as mock_wsgi_app:
+            create_webdav_app(
+                paperless_url="http://paperless.test",
+                share_loader=lambda: {},
+            )
+
+        config = mock_wsgi_app.call_args[0][0]
+        assert config["hotfixes"]["treat_root_options_as_asterisk"] is False
+
+    @staticmethod
+    def _call_wsgi(app, method: str) -> tuple[str, dict[str, str], bytes]:
+        """Call the WebDAV WSGI app at root and capture the response."""
+        environ: dict[str, object] = {}
+        setup_testing_defaults(environ)
+        environ["REQUEST_METHOD"] = method
+        environ["PATH_INFO"] = "/"
+        environ["SCRIPT_NAME"] = ""
+        environ["CONTENT_LENGTH"] = "0"
+        if method == "PROPFIND":
+            environ["HTTP_DEPTH"] = "0"
+
+        captured: dict[str, object] = {}
+
+        def start_response(
+            status: str,
+            headers: list[tuple[str, str]],
+            exc_info: object | None = None,
+        ) -> None:
+            captured["status"] = status
+            captured["headers"] = dict(headers)
+
+        body = b"".join(app(environ, start_response))
+        return (
+            str(captured["status"]),
+            dict(captured["headers"]),
+            body,
+        )
+
+    def test_root_propfind_reaches_dav_handler(self, mock_settings):
+        """PROPFIND / should return WebDAV Multi-Status, not OPTIONS HTML."""
+        with patch.object(
+            PaperlessBasicAuthenticator,
+            "require_authentication",
+            return_value=False,
+        ):
+            app = create_webdav_app(
+                paperless_url="http://paperless.test",
+                share_loader=lambda: {},
+            )
+            status, headers, body = self._call_wsgi(app, "PROPFIND")
+
+        assert status.startswith("207 ")
+        assert headers["Content-Type"].startswith("application/xml")
+        assert b"multistatus" in body
+
+    def test_root_options_still_works_without_legacy_hotfix(self, mock_settings):
+        """OPTIONS / should use normal DAV resource handling."""
+        with patch.object(
+            PaperlessBasicAuthenticator,
+            "require_authentication",
+            return_value=False,
+        ):
+            app = create_webdav_app(
+                paperless_url="http://paperless.test",
+                share_loader=lambda: {},
+            )
+            status, headers, body = self._call_wsgi(app, "OPTIONS")
+
+        assert status.startswith("200 ")
+        assert "PROPFIND" in headers["Allow"]
+        assert headers["DAV"] in {"1", "1,2"}
+        assert body == b""
 
 
 class TestWebDAVServer:
