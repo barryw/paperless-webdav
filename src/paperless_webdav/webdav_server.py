@@ -190,6 +190,7 @@ def _make_authenticator_class(
     ldap_base_dn: str | None = None,
     ldap_bind_dn: str | None = None,
     ldap_bind_password: str | None = None,
+    ldap_user_filter: str = "(cn={username})",
 ) -> type[PaperlessBasicAuthenticator]:
     """Create a configured authenticator class that wsgidav can instantiate.
 
@@ -207,6 +208,7 @@ def _make_authenticator_class(
                 ldap_base_dn=ldap_base_dn,
                 ldap_bind_dn=ldap_bind_dn,
                 ldap_bind_password=ldap_bind_password,
+                ldap_user_filter=ldap_user_filter,
             )
 
     return ConfiguredAuthenticator
@@ -221,6 +223,7 @@ def create_webdav_app(
     ldap_base_dn: str | None = None,
     ldap_bind_dn: str | None = None,
     ldap_bind_password: str | None = None,
+    ldap_user_filter: str = "(cn={username})",
     redis_host: str | None = None,
     redis_port: int = 6379,
     redis_db: int = 0,
@@ -239,6 +242,8 @@ def create_webdav_app(
         ldap_base_dn: LDAP base DN for user lookups
         ldap_bind_dn: Service account DN for LDAP bind
         ldap_bind_password: Service account password for LDAP bind
+        ldap_user_filter: LDAP search filter template for service-account
+            search-then-bind
         redis_host: Redis host for distributed lock storage
         redis_port: Redis port (default 6379)
         redis_db: Redis database number (default 0)
@@ -263,6 +268,7 @@ def create_webdav_app(
         ldap_base_dn,
         ldap_bind_dn,
         ldap_bind_password,
+        ldap_user_filter,
     )
 
     config = {
@@ -334,6 +340,7 @@ class WebDAVServer:
         ldap_base_dn: str | None = None,
         ldap_bind_dn: str | None = None,
         ldap_bind_password: str | None = None,
+        ldap_user_filter: str = "(cn={username})",
         redis_host: str | None = None,
         redis_port: int = 6379,
         redis_db: int = 0,
@@ -354,6 +361,8 @@ class WebDAVServer:
             ldap_base_dn: LDAP base DN for user lookups
             ldap_bind_dn: Service account DN for LDAP bind
             ldap_bind_password: Service account password for LDAP bind
+            ldap_user_filter: LDAP search filter template for service-account
+                search-then-bind
             redis_host: Redis host for distributed lock storage
             redis_port: Redis port (default 6379)
             redis_db: Redis database number (default 0)
@@ -368,6 +377,7 @@ class WebDAVServer:
             ldap_base_dn=ldap_base_dn,
             ldap_bind_dn=ldap_bind_dn,
             ldap_bind_password=ldap_bind_password,
+            ldap_user_filter=ldap_user_filter,
             redis_host=redis_host,
             redis_port=redis_port,
             redis_db=redis_db,

@@ -89,6 +89,23 @@ class TestCreateWebdavApp:
                 assert instance._auth_mode == "oidc"
                 assert instance._encryption_key == "test-encryption-key"
 
+    def test_passes_configured_ldap_user_filter(self, mock_settings):
+        """Should pass the LDAP search filter into the authenticator."""
+        with patch("paperless_webdav.webdav_server.PaperlessProvider"):
+            with patch("paperless_webdav.webdav_server.WsgiDAVApp") as mock_app:
+                create_webdav_app(
+                    paperless_url="http://paperless.test",
+                    share_loader=lambda: {},
+                    auth_mode="oidc",
+                    ldap_user_filter="(uid={username})",
+                )
+
+                config = mock_app.call_args[0][0]
+                auth_class = config["http_authenticator"]["domain_controller"]
+                instance = auth_class(None, {})
+
+                assert instance._ldap_user_filter == "(uid={username})"
+
     def test_stores_share_loader_in_config(self, mock_settings):
         """Should store share_loader in config for request handlers."""
         share_loader = MagicMock(return_value={})

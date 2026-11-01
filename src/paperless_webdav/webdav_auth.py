@@ -6,6 +6,7 @@ import time
 from typing import Any
 
 import ldap  # type: ignore[import-untyped]
+from ldap.filter import escape_filter_chars  # type: ignore[import-untyped]
 from wsgidav.dc.base_dc import BaseDomainController  # type: ignore[import-untyped]
 
 from paperless_webdav.async_bridge import run_async
@@ -42,6 +43,7 @@ class PaperlessBasicAuthenticator(BaseDomainController):  # type: ignore[misc]
         ldap_base_dn: str | None = None,
         ldap_bind_dn: str | None = None,
         ldap_bind_password: str | None = None,
+        ldap_user_filter: str = "(cn={username})",
     ) -> None:
         """Initialize the authenticator.
 
@@ -53,6 +55,8 @@ class PaperlessBasicAuthenticator(BaseDomainController):  # type: ignore[misc]
             ldap_base_dn: Base DN for LDAP user lookups.
             ldap_bind_dn: Service account DN for LDAP bind (e.g., cn=akadmin,ou=users,dc=ldap,dc=goauthentik,dc=io).
             ldap_bind_password: Service account password for LDAP bind.
+            ldap_user_filter: LDAP search filter template for service-account
+                search-then-bind. Must contain the {username} placeholder.
         """
         # Pass None for wsgidav_app and config - we don't need them
         super().__init__(None, None)
@@ -63,6 +67,9 @@ class PaperlessBasicAuthenticator(BaseDomainController):  # type: ignore[misc]
         self._ldap_base_dn = ldap_base_dn
         self._ldap_bind_dn = ldap_bind_dn
         self._ldap_bind_password = ldap_bind_password
+        if "{username}" not in ldap_user_filter:
+            raise ValueError("ldap_user_filter must contain the '{username}' placeholder")
+        self._ldap_user_filter = ldap_user_filter
         self._user_tokens: dict[str, str] = {}
 
     def get_domain_realm(self, path_info: str, environ: dict[str, Any] | None) -> str:
@@ -97,6 +104,22 @@ class PaperlessBasicAuthenticator(BaseDomainController):  # type: ignore[misc]
         """
         return False
 
+    def _build_ldap_user_filter(self, username: str) -> str:
+        """Render the configured LDAP user search filter safely.
+
+        Only the documented {username} placeholder is substituted. Using
+        str.replace rather than str.format avoids interpreting other braces that
+        may legitimately appear in an administrator-supplied LDAP filter.
+
+        Args:
+            username: Username received from HTTP Basic authentication.
+
+        Returns:
+            LDAP search filter with the username escaped per RFC 4515.
+        """
+        escaped_username = escape_filter_chars(username)
+        return self._ldap_user_filter.replace("{username}", escaped_username)
+
     def _authenticate_ldap(self, username: str, password: str) -> bool:
         """Authenticate user against LDAP server.
 
@@ -126,7 +149,7 @@ class PaperlessBasicAuthenticator(BaseDomainController):  # type: ignore[misc]
 
                 # Search for the user
                 search_base = self._ldap_base_dn
-                search_filter = f"(cn={username})"
+                search_filter = self._build_ldap_user_filter(username)
                 result = conn.search_s(search_base, ldap.SCOPE_SUBTREE, search_filter)
 
                 if not result:

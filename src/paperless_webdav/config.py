@@ -29,6 +29,13 @@ class Settings(BaseSettings):
     ldap_base_dn: str | None = Field(default=None)
     ldap_bind_dn: str | None = Field(default=None)
     ldap_bind_password: SecretStr | None = Field(default=None)
+    ldap_user_filter: str = Field(
+        default="(cn={username})",
+        description=(
+            "LDAP search filter template used with service-account search-then-bind. "
+            "Must contain the {username} placeholder."
+        ),
+    )
 
     # Security
     session_expiry_hours: int = Field(default=24)

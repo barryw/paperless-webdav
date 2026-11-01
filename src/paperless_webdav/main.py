@@ -98,6 +98,7 @@ def run_servers() -> None:
         ldap_base_dn=settings.ldap_base_dn,
         ldap_bind_dn=settings.ldap_bind_dn,
         ldap_bind_password=ldap_bind_password,
+        ldap_user_filter=settings.ldap_user_filter,
         redis_host=settings.redis_lock_host,
         redis_port=settings.redis_lock_port,
         redis_db=settings.redis_lock_db,

@@ -2,7 +2,7 @@
 """Tests for WebDAV HTTP Basic authentication."""
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from paperless_webdav.webdav_auth import PaperlessBasicAuthenticator
 
@@ -218,3 +218,90 @@ class TestOIDCModeTokenLoading:
             # Should have called run_async exactly once for Paperless auth
             # (not for DB lookup first)
             assert mock_run.call_count == 1
+
+
+class TestLdapUserFilter:
+    """Tests for configurable LDAP user search filters."""
+
+    @staticmethod
+    def _auth(ldap_user_filter: str = "(cn={username})") -> PaperlessBasicAuthenticator:
+        return PaperlessBasicAuthenticator(
+            "http://paperless.test",
+            auth_mode="oidc",
+            encryption_key="test-encryption-key",
+            ldap_url="ldap://ldap.test:389",
+            ldap_base_dn="dc=example,dc=com",
+            ldap_bind_dn="cn=service,dc=example,dc=com",
+            ldap_bind_password="service-password",
+            ldap_user_filter=ldap_user_filter,
+        )
+
+    @staticmethod
+    def _connection() -> MagicMock:
+        connection = MagicMock()
+        connection.search_s.return_value = [("uid=barry,ou=people,dc=example,dc=com", {})]
+        return connection
+
+    def test_default_filter_preserves_cn_behavior(self):
+        """Default search filter should remain backward compatible."""
+        auth = self._auth()
+        connection = self._connection()
+
+        with patch("paperless_webdav.webdav_auth.ldap.initialize", return_value=connection):
+            assert auth._authenticate_ldap("barry", "secret") is True
+
+        connection.search_s.assert_called_once_with(
+            "dc=example,dc=com",
+            2,
+            "(cn=barry)",
+        )
+
+    def test_configured_uid_filter_is_used(self):
+        """Directories keyed by uid should be selectable without a local patch."""
+        auth = self._auth("(uid={username})")
+        connection = self._connection()
+
+        with patch("paperless_webdav.webdav_auth.ldap.initialize", return_value=connection):
+            assert auth._authenticate_ldap("barry", "secret") is True
+
+        connection.search_s.assert_called_once_with(
+            "dc=example,dc=com",
+            2,
+            "(uid=barry)",
+        )
+
+    def test_compound_filter_is_supported(self):
+        """Administrators may constrain the user search beyond one attribute."""
+        auth = self._auth("(&(objectClass=person)(uid={username}))")
+        connection = self._connection()
+
+        with patch("paperless_webdav.webdav_auth.ldap.initialize", return_value=connection):
+            assert auth._authenticate_ldap("barry", "secret") is True
+
+        connection.search_s.assert_called_once_with(
+            "dc=example,dc=com",
+            2,
+            "(&(objectClass=person)(uid=barry))",
+        )
+
+    def test_username_is_escaped_before_filter_substitution(self):
+        """User input must not be able to alter the configured LDAP filter."""
+        auth = self._auth("(uid={username})")
+        connection = self._connection()
+
+        with patch("paperless_webdav.webdav_auth.ldap.initialize", return_value=connection):
+            assert auth._authenticate_ldap("barry*)(uid=*)", "secret") is True
+
+        connection.search_s.assert_called_once_with(
+            "dc=example,dc=com",
+            2,
+            r"(uid=barry\2a\29\28uid=\2a\29)",
+        )
+
+    def test_filter_requires_username_placeholder(self):
+        """A filter that cannot bind the requested user must fail at startup."""
+        with pytest.raises(
+            ValueError,
+            match=r"ldap_user_filter must contain the '\{username\}' placeholder",
+        ):
+            self._auth("(objectClass=person)")
