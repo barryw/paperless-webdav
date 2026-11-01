@@ -86,15 +86,16 @@ async def oidc_callback(
     """Handle OIDC callback from Authentik after authentication.
 
     Exchanges the authorization code for tokens, extracts user information,
-    and creates a session. The Paperless token is initially empty - the user
-    will need to configure it on the token-setup page.
+    and creates a session. Returning users with a stored Paperless token go
+    directly to their shares; first-time users are sent to token setup.
 
     Args:
         request: The incoming request with authorization code.
         settings: Application settings.
 
     Returns:
-        RedirectResponse to /ui/token-setup on success, or /ui/login on error.
+        RedirectResponse to /ui/shares for returning users, /ui/token-setup for
+        first-time users, or /ui/login on error.
     """
     oauth = get_oauth(settings)
     try:
@@ -110,12 +111,13 @@ async def oidc_callback(
         logger.error("oidc_no_username", userinfo=userinfo)
         return RedirectResponse(url="/ui/login?error=no_username")
 
-    # Create session with empty Paperless token (user will set it on token-setup page)
-    from paperless_webdav.auth.paperless import _create_session
+    from paperless_webdav.auth.paperless import _create_session, _load_token_from_db
 
+    stored_token = await _load_token_from_db(username, settings)
     session_value = _create_session(username, "", settings)
+    redirect_url = "/ui/shares" if stored_token else "/ui/token-setup"
 
-    response = RedirectResponse(url="/ui/token-setup", status_code=303)
+    response = RedirectResponse(url=redirect_url, status_code=303)
     response.set_cookie(
         key="session",
         value=session_value,
