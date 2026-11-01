@@ -207,6 +207,8 @@ class TestRunServers:
 
             # Verify WebDAV server was created
             mock_webdav.assert_called_once()
+            call_kwargs = mock_webdav.call_args.kwargs
+            assert call_kwargs["ldap_user_filter"] == "(cn={username})"
 
             # Verify thread was created as daemon and started
             mock_thread_class.assert_called_once()
