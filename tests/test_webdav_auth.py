@@ -239,9 +239,7 @@ class TestLdapUserFilter:
     @staticmethod
     def _connection() -> MagicMock:
         connection = MagicMock()
-        connection.search_s.return_value = [
-            ("uid=barry,ou=people,dc=example,dc=com", {})
-        ]
+        connection.search_s.return_value = [("uid=barry,ou=people,dc=example,dc=com", {})]
         return connection
 
     def test_default_filter_preserves_cn_behavior(self):
