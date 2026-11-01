@@ -132,6 +132,7 @@ kubectl apply -f k8s/
 | `LDAP_BASE_DN` | No | LDAP base DN (e.g., `dc=ldap,dc=goauthentik,dc=io`) |
 | `LDAP_BIND_DN` | No | Service account DN for LDAP searches |
 | `LDAP_BIND_PASSWORD` | No | Service account password |
+| `LDAP_USER_FILTER` | No | LDAP search filter template for service-account search-then-bind (default: `(cn={username})`) |
 
 ### TLS Configuration
 
@@ -192,12 +193,24 @@ OIDC_CLIENT_ID=your-client-id
 OIDC_CLIENT_SECRET=your-client-secret
 LDAP_URL=ldap://auth.example.com:389
 LDAP_BASE_DN=dc=ldap,dc=goauthentik,dc=io
+# Optional: use uid or a compound filter for directories that do not key users by cn.
+LDAP_USER_FILTER=(uid={username})
 ```
 
 **How it works:**
 - Admin UI: Redirects to your OIDC provider for login
 - First login: You'll be prompted to enter your Paperless API token (see below)
 - WebDAV: Authenticates against LDAP using your SSO credentials
+
+When `LDAP_BIND_DN` and `LDAP_BIND_PASSWORD` are configured, WebDAV uses
+search-then-bind. `LDAP_USER_FILTER` controls that search and must contain the
+literal `{username}` placeholder. The username is LDAP-filter escaped before
+substitution. For example, LLDAP and other uid-based directories can use
+`(uid={username})`; compound filters such as
+`(&(objectClass=person)(uid={username}))` are also supported.
+
+`LDAP_USER_FILTER` does not change the existing direct-bind path used when no
+service bind is configured; that path still constructs a `cn=...` user DN.
 
 ## Finding Your Paperless API Token
 
@@ -322,6 +335,9 @@ Documents moved to the done folder will have the configured "done tag" added in 
 ### LDAP authentication fails (OIDC mode)
 
 - Verify `LDAP_URL` and `LDAP_BASE_DN` are correct
+- If your directory identifies users by another attribute, set
+  `LDAP_USER_FILTER` (for example `(uid={username})`)
+- `LDAP_USER_FILTER` must contain the literal `{username}` placeholder
 - Test LDAP connectivity:
   ```bash
   ldapsearch -x -H ldap://your-ldap:389 -b "dc=ldap,dc=example,dc=com" "(uid=username)"
